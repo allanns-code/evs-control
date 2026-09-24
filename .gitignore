@@ -174,3 +174,9 @@
 *.lz
 *.lzma
 *.iso
+
+# SQLite
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
+server/data.sqlite

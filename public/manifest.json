@@ -1,0 +1,16 @@
+{
+  "name": "EVS Control – Controle Financeiro",
+  "short_name": "EVS Control",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f2f2",
+  "theme_color": "#2B4ECC",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
