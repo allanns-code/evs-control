@@ -8,6 +8,8 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
+RUN mkdir -p /var/data
+
 ENV NODE_ENV=production
 ENV PORT=3001
 EXPOSE 3001

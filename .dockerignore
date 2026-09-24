@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.monkeycode-tmp-files
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
+.env
+*.log
