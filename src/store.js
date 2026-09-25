@@ -15,9 +15,32 @@ const state = {
 
 let syncTimer = null;
 
+function normalizeUserData(d) {
+  if (!d) return d;
+  d.cartelaMovs = d.cartelaMovs || [];
+  d.fechamentoFlags = d.fechamentoFlags || {};
+  const c = d.contas || [];
+  if (
+    c.length === 6 &&
+    Number(c[0]?.pct) === 20 &&
+    Number(c[4]?.pct) === 5 &&
+    Number(c[5]?.pct) === 5
+  ) {
+    d.contas = [
+      { id: "clf", sigla: "CLF", nome: "Liberdade Financeira", pct: 10 },
+      { id: "aqb", sigla: "AQB", nome: "Aquisicao de bens", pct: 10 },
+      { id: "sis", sigla: "SIS", nome: "Sistema", pct: 10 },
+      { id: "nec", sigla: "NEC", nome: "Necessidades Basicas", pct: 50 },
+      { id: "play", sigla: "PLAY", nome: "Diversao", pct: 10 },
+      { id: "doa", sigla: "DOA", nome: "Doacao", pct: 10 },
+    ];
+  }
+  return d;
+}
+
 async function loadUserData() {
   const r = await api.get("/data");
-  state.data = r.data;
+  state.data = normalizeUserData(r.data);
   return state.data;
 }
 
@@ -297,17 +320,51 @@ export const store = {
 
   addCartela({ cliente, quantidade }) {
     mutate((d) => {
+      d.cartelaMovs = d.cartelaMovs || [];
       const existing = d.cartelas.find((c) => c.cliente.toLowerCase() === cliente.toLowerCase());
-      if (existing) existing.saldo += Number(quantidade);
-      else d.cartelas.push({ id: uid(), cliente, saldo: Number(quantidade) });
+      const qtd = Number(quantidade) || 0;
+      if (existing) existing.saldo += qtd;
+      else d.cartelas.push({ id: uid(), cliente, saldo: qtd });
+      const saldo = (existing ? existing.saldo : qtd);
+      d.cartelaMovs.push({ id: uid(), cliente, tipo: "compra", qtd, saldo, ts: Date.now() });
     });
   },
 
   useCartela(cliente) {
     mutate((d) => {
+      d.cartelaMovs = d.cartelaMovs || [];
       const existing = d.cartelas.find((c) => c.cliente.toLowerCase() === cliente.toLowerCase());
-      if (existing && existing.saldo > 0) existing.saldo -= 1;
+      if (!existing) return;
+      existing.saldo -= 1;
+      d.cartelaMovs.push({ id: uid(), cliente, tipo: "uso", qtd: 1, saldo: existing.saldo, ts: Date.now() });
     });
+  },
+
+  updateAcesso(id, patch) {
+    mutate((d) => {
+      const item = d.acessos.find((x) => x.id === id);
+      if (item) Object.assign(item, patch);
+    });
+  },
+
+  updateVenda(id, patch) {
+    mutate((d) => {
+      const item = d.vendas.find((x) => x.id === id);
+      if (item) Object.assign(item, patch);
+    });
+  },
+
+  setFechamentoFlag(ano, mes, dia, plus) {
+    mutate((d) => {
+      d.fechamentoFlags = d.fechamentoFlags || {};
+      d.fechamentoFlags[`${ano}-${mes}-${dia}`] = !!plus;
+    });
+  },
+
+  getFechamentoFlag(ano, mes, dia) {
+    const flags = state.data?.fechamentoFlags || {};
+    const k = `${ano}-${mes}-${dia}`;
+    return flags[k] !== undefined ? flags[k] : true;
   },
 
   async addColaborador({ nome, email, senha }) {
@@ -336,12 +393,12 @@ export const store = {
   resetContas() {
     mutate((d) => {
       d.contas = [
-        { id: "clf", sigla: "CLF", nome: "Liberdade Financeira", pct: 20 },
+        { id: "clf", sigla: "CLF", nome: "Liberdade Financeira", pct: 10 },
         { id: "aqb", sigla: "AQB", nome: "Aquisicao de bens", pct: 10 },
         { id: "sis", sigla: "SIS", nome: "Sistema", pct: 10 },
         { id: "nec", sigla: "NEC", nome: "Necessidades Basicas", pct: 50 },
-        { id: "play", sigla: "PLAY", nome: "Diversao", pct: 5 },
-        { id: "doa", sigla: "DOA", nome: "Doacao", pct: 5 },
+        { id: "play", sigla: "PLAY", nome: "Diversao", pct: 10 },
+        { id: "doa", sigla: "DOA", nome: "Doacao", pct: 10 },
       ];
     });
   },

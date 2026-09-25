@@ -2,9 +2,9 @@ import { store } from "../store.js";
 import { navigate } from "../router.js";
 import {
   MESES, ESTADOS, DESCONTOS, formatMoney, parseMoney, todayParts,
-  toast, confirmModal, escapeHtml, getDolar,
+  toast, confirmModal, escapeHtml, projectionLabel,
 } from "../utils.js";
-import { monthStats, dayStats, yearStats } from "../compute.js";
+import { monthStats, dayStats, annualReport, yearRecrutamento } from "../compute.js";
 import { buscarProdutos, custoComDesconto } from "../catalog.js";
 
 function logoSvg() {
@@ -33,7 +33,8 @@ export function renderDashboard(root) {
   let mes = t.mes;
   let dia = t.dia;
   let itensVenda = [];
-  let dolar = 5;
+  const dolar = 5;
+  let hideLast = false;
 
   const impersonating = store.isImpersonating();
   root.innerHTML = `
@@ -69,21 +70,24 @@ export function renderDashboard(root) {
         <div class="box">
           <div class="box-titulo">Faturamento mes atual</div>
           <span id="mesFaturamento">R$ 0,00</span>
-          <div class="box-sub" id="projecaoMes">Probabilidade no mes: —</div>
+          <div class="box-sub" id="projecaoMes">Projecao: —</div>
         </div>
         <div class="box">
           <div class="box-titulo">Lucro mes atual</div>
           <span id="mesLucro">R$ 0,00</span>
-          <div class="box-sub" id="projecaoLucro">Probabilidade no mes: —</div>
+          <div class="box-sub" id="projecaoLucro">Projecao: —</div>
         </div>
       </div>
 
-      <button type="button" id="btnResumo">Resumo de Ganhos</button>
       <div class="pv-box">
         Pontos de volume <strong id="pontosVolume">0</strong>
         &nbsp; Projecao Pv: <strong id="projecaoPV">—</strong>
       </div>
 
+      <div class="dia-topo">
+        <button class="btn-relatorio" id="btnRelatorioMensal">Relatorio Mensal</button>
+        <button class="btn-relatorio" id="btnResumo">Resumo Ganhos</button>
+      </div>
       <div class="dia-topo">
         <button class="btn-relatorio" id="btnRelatorioDiario">Relatorio Diario</button>
         <button class="btn-relatorio" id="btnRelatorioAnual">Relatorio Anual</button>
@@ -109,7 +113,7 @@ export function renderDashboard(root) {
         <button type="button" id="btnAdicionarAcesso">Adicionar Acesso</button>
       </div>
 
-      <a href="#/cartelas" class="link-cartelas">&gt;&gt; Cartelas antecipadas &lt;&lt;</a>
+      <a href="#/cartelas" class="link-cartelas" id="linkCartelas">&gt;&gt; Cartelas antecipadas &lt;&lt;</a>
       <div class="center" style="margin-bottom:16px">
         <a href="#/pesquisa" class="link-pill">Pesquisa EVS</a>
       </div>
@@ -156,7 +160,7 @@ export function renderDashboard(root) {
         <button type="button" class="btn-relatorio" id="btnRelatorioRecrutamento">Relatorio de Recrutamento</button>
         <div style="display:flex;justify-content:center;gap:16px;margin:12px 0 8px">
           <a href="#/prospectos" class="link-soft">Prospectos</a>
-          <a href="#/pesquisa" class="link-soft">Cadastro EVS</a>
+          <a href="https://accounts.myherbalife.com/Account/Create?appId=1&locale=pt-BR&redirect=https://www.myherbalife.com/pt-BR/" target="_blank" rel="noopener" class="link-soft">Cadastro Herbalife</a>
         </div>
         <input id="distribuidorNome" placeholder="Nome do novo distribuidor" />
         <button type="button" id="btnAdicionarDistribuidor">Adicionar Distribuidor</button>
@@ -192,7 +196,9 @@ export function renderDashboard(root) {
       <footer class="footer-chefe">
         <button type="button" id="btnColab">Gerenciar colaboradores</button>
         <button type="button" id="btnInv">Inventario - Estoque de produtos</button>
-        <div class="footer-marca">COMO USAR - EVS Control (c) ${t.ano}</div>
+        <div class="footer-marca">
+          <a href="https://www.youtube.com/watch?v=JgD_ctyhfEU" target="_blank" rel="noopener" class="marca-link">COMO USAR - EVS Control (c) ${t.ano}</a>
+        </div>
         <div class="footer-links">
           <a href="#/gestao">Gestao Financeira</a>
           <a href="#/precificador">Precificador</a>
@@ -222,13 +228,13 @@ export function renderDashboard(root) {
 
   function refreshLast() {
     const la = data.lastAcesso;
-    if (la && Number(la.dia) === Number(dia) && Number(la.mes) === Number(mes) && Number(la.ano) === Number(ano)) {
+    if (la && !hideLast) {
       $("#ultimoAcesso").style.display = "flex";
       $("#ultimoNome").textContent = la.nome;
       $("#ultimoValor").textContent = formatMoney(la.valor);
     } else $("#ultimoAcesso").style.display = "none";
     const lv = data.lastVenda;
-    if (lv && Number(lv.dia) === Number(dia) && Number(lv.mes) === Number(mes) && Number(lv.ano) === Number(ano)) {
+    if (lv && !hideLast) {
       $("#ultimaVenda").style.display = "flex";
       $("#ultimaVendaNome").textContent = lv.nome;
       $("#ultimaVendaValor").textContent = formatMoney(lv.valor);
@@ -240,8 +246,8 @@ export function renderDashboard(root) {
     const d = dayStats(data, ano, mes, dia);
     $("#mesFaturamento").textContent = formatMoney(m.faturamento);
     $("#mesLucro").textContent = formatMoney(m.lucro);
-    $("#projecaoMes").textContent = m.projFat == null ? "Probabilidade no mes: —" : `Probabilidade no mes: ${formatMoney(m.projFat)}`;
-    $("#projecaoLucro").textContent = m.projLucro == null ? "Probabilidade no mes: —" : `Probabilidade no mes: ${formatMoney(m.projLucro)}`;
+    $("#projecaoMes").textContent = projectionLabel(m.faturamento, ano, mes);
+    $("#projecaoLucro").textContent = projectionLabel(m.lucro, ano, mes);
     $("#totalAcessosMes").textContent = m.totalAcessos;
     $("#mediaAcessosDia").textContent = Number(m.mediaAcessos).toFixed(1);
     $("#ticketMedio").textContent = formatMoney(m.ticket);
@@ -256,23 +262,28 @@ export function renderDashboard(root) {
     $("#diaEntrada").textContent = formatMoney(d.entrada);
     $("#diaCusto").textContent = formatMoney(d.custo);
     $("#diaLucro").textContent = formatMoney(d.lucro);
-    const pv = m.faturamento - m.lucro > 0 ? (m.faturamento - m.lucro) / dolar : 0;
-    $("#pontosVolume").textContent = Math.floor(pv);
-    const projPv = m.projFat != null && m.projLucro != null
-      ? Math.max(0, (m.projFat - m.projLucro) / dolar)
-      : null;
-    $("#projecaoPV").textContent = projPv == null ? "—" : Math.floor(projPv).toLocaleString("pt-BR");
+    const custoMes = Math.max(0, m.faturamento - m.lucro);
+    const pv = custoMes > 0 ? custoMes / dolar : 0;
+    $("#pontosVolume").textContent = Math.floor(pv).toLocaleString("pt-BR");
+    const hoje = new Date();
+    const mesAtual = hoje.getFullYear() === Number(ano) && hoje.getMonth() === Number(mes);
+    const mesFuturo = Number(ano) > hoje.getFullYear() || (Number(ano) === hoje.getFullYear() && Number(mes) > hoje.getMonth());
+    if (mesFuturo || !pv) $("#projecaoPV").textContent = "—";
+    else if (mesAtual) $("#projecaoPV").textContent = Math.floor((pv / hoje.getDate()) * new Date(ano, mes + 1, 0).getDate()).toLocaleString("pt-BR");
+    else $("#projecaoPV").textContent = String(Math.floor(pv));
     const metas = store.getMetas(ano, mes);
     $("#metaDistribuidores").value = metas.d || "";
     $("#metaSupervisores").value = metas.s || "";
     refreshLast();
   }
 
-  getDolar().then((v) => { dolar = v; refresh(); });
-
-  $("#anoSelecionado").onchange = (e) => { ano = Number(e.target.value); fillDays(); refresh(); };
-  $("#mesSelecionado").onchange = (e) => { mes = Number(e.target.value); if (dia > new Date(ano, mes + 1, 0).getDate()) dia = 1; fillDays(); refresh(); };
-  $("#diaSelecionado").onchange = (e) => { dia = Number(e.target.value); refresh(); };
+  $("#anoSelecionado").onchange = (e) => { ano = Number(e.target.value); hideLast = true; fillDays(); refresh(); };
+  $("#mesSelecionado").onchange = (e) => { mes = Number(e.target.value); if (dia > new Date(ano, mes + 1, 0).getDate()) dia = 1; hideLast = true; fillDays(); refresh(); };
+  $("#diaSelecionado").onchange = (e) => {
+    dia = Number(e.target.value);
+    hideLast = true;
+    refresh();
+  };
   $("#estadoCliente").onchange = (e) => store.setPerfil({ estado: e.target.value });
   $("#descontoCliente").onchange = (e) => store.setPerfil({ desconto: Number(e.target.value) });
   $("#btnSair").onclick = () => { store.logout(); navigate("/login"); };
@@ -282,6 +293,11 @@ export function renderDashboard(root) {
   $("#btnIndicar").onclick = () => navigate("/indicar");
   $("#btnColab").onclick = () => navigate("/colaboradores");
   $("#btnInv").onclick = () => navigate("/inventario");
+  $("#linkCartelas").onclick = (e) => {
+    e.preventDefault();
+    alert("Para o sistema de cartelas funcionar:\n\nDigite o valor total da venda da cartela no dia do pagamento no lancamento de acessos.\n\nPara cada cartela utilizada, digite o nome do cliente e digite 0,00 no valor.");
+    navigate("/cartelas");
+  };
 
   $("#acessoNome").addEventListener("input", () => {
     const box = $("#sugestoesClientes");
@@ -302,13 +318,16 @@ export function renderDashboard(root) {
 
   $("#btnAdicionarAcesso").onclick = () => {
     const cliente = $("#acessoNome").value.trim();
-    const valor = Number($("#acessoValor").value);
-    if (!cliente || !valor) { toast("Preencha todos os campos", "err"); return; }
+    const raw = $("#acessoValor").value;
+    if (!cliente || raw === "") { toast("Preencha todos os campos", "err"); return; }
+    const valor = Number(String(raw).replace(",", "."));
+    if (!Number.isFinite(valor) || valor < 0) { toast("Informe um valor valido", "err"); return; }
     store.addAcesso({ cliente, valor, dia, mes, ano });
-    store.useCartela(cliente);
+    if (valor === 0) store.useCartela(cliente);
     $("#acessoNome").value = "";
     $("#acessoValor").value = "";
     $("#acessoNome").focus();
+    hideLast = false;
     toast("Acesso salvo");
     refresh();
   };
@@ -343,7 +362,9 @@ export function renderDashboard(root) {
 
   $("#vendaProdutoBusca").addEventListener("input", () => {
     const box = $("#resultadosProdutosVenda");
-    const list = buscarProdutos($("#vendaProdutoBusca").value);
+    const q = $("#vendaProdutoBusca").value.trim();
+    if (q.length < 2) { box.style.display = "none"; return; }
+    const list = buscarProdutos(q);
     if (!list.length) { box.style.display = "none"; return; }
     const desc = Number($("#descontoCliente").value) || 0;
     box.innerHTML = list.map((p) => `
@@ -385,6 +406,7 @@ export function renderDashboard(root) {
     $("#vendaValor").value = "";
     itensVenda = [];
     renderItens();
+    hideLast = false;
     toast("Venda registrada");
     refresh();
   };
@@ -454,33 +476,89 @@ export function renderDashboard(root) {
     });
   };
 
+  $("#btnRelatorioMensal").onclick = () => {
+    const m = monthStats(data, ano, mes);
+    const busca = `<input id="pesquisaClienteMensal" placeholder="Pesquisar cliente" />`;
+    const htmlAcessos = m.acessos.map((a, i) => `
+      <div class="relatorio-item" data-cliente="${escapeHtml(a.cliente)}">
+        <div>
+          <div class="relatorio-nome">${i + 1}. ${escapeHtml(a.cliente)}</div>
+          <div class="muted">${new Date(a.ts).toLocaleString("pt-BR")}</div>
+          <div>${formatMoney(a.valor)}</div>
+        </div>
+        <button class="btn-apagar" data-acc="${a.id}">Apagar</button>
+      </div>`).join("") || `<p class="muted">Nenhum acesso neste mes.</p>`;
+    const htmlVendas = m.vendas.map((v, i) => `
+      <div class="relatorio-item" data-cliente="${escapeHtml(v.cliente)}">
+        <div>
+          <div class="relatorio-nome">${i + 1}. ${escapeHtml(v.cliente)}</div>
+          <div>${(v.itens || []).map((it) => `${it.quantidade}x ${escapeHtml(it.produto)}`).join(", ")}</div>
+          <div class="muted">${new Date(v.ts).toLocaleString("pt-BR")}</div>
+          <div><strong>${formatMoney(v.valor)}</strong></div>
+        </div>
+        <button class="btn-apagar" data-ven="${v.id}">Apagar</button>
+      </div>`).join("") || `<p class="muted">Nenhuma venda neste mes.</p>`;
+    openModal(`
+      <h3>RELATORIO MENSAL · ${MESES[mes]}/${ano}</h3>
+      <div class="kpi" style="margin-bottom:10px">
+        <div class="card"><span>Acessos</span><strong>${m.totalAcessos}</strong><div class="muted">${formatMoney(m.fatAcessos)}</div></div>
+        <div class="card"><span>Vendas</span><strong>${m.vendas.length}</strong><div class="muted">${formatMoney(m.fatVendas)}</div></div>
+      </div>
+      <p style="background:#e8f5e9;padding:10px;border-radius:10px;font-weight:700">FATURAMENTO TOTAL ${formatMoney(m.faturamento)}</p>
+      ${busca}
+      <h4 style="color:#0050ff">Acessos do mes</h4>${htmlAcessos}
+      <h4 style="color:#0050ff">Vendas do mes</h4>${htmlVendas}
+    `);
+    const filtro = $("#relatorio").querySelector("#pesquisaClienteMensal");
+    if (filtro) {
+      filtro.oninput = () => {
+        const t = filtro.value.trim().toLowerCase();
+        $("#relatorio").querySelectorAll(".relatorio-item[data-cliente]").forEach((el) => {
+          el.style.display = !t || el.dataset.cliente.toLowerCase().includes(t) ? "" : "none";
+        });
+      };
+    }
+    $("#relatorio").querySelectorAll("[data-acc]").forEach((b) => b.onclick = async () => {
+      if (await confirmModal("Deseja apagar este acesso?")) { store.removeById("acessos", b.dataset.acc); modal.classList.remove("show"); refresh(); }
+    });
+    $("#relatorio").querySelectorAll("[data-ven]").forEach((b) => b.onclick = async () => {
+      if (await confirmModal("Deseja apagar esta venda?")) { store.removeById("vendas", b.dataset.ven); modal.classList.remove("show"); refresh(); }
+    });
+  };
+
   $("#btnRelatorioAnual").onclick = () => {
-    const rows = yearStats(data, ano);
-    const total = rows.reduce((s, r) => s + r.total, 0);
+    const rows = annualReport(data, ano);
+    const fat = rows.reduce((s, r) => s + r.faturamento, 0);
+    const luc = rows.reduce((s, r) => s + r.lucro, 0);
     openModal(`
       <h3>Relatorio Anual ${ano}</h3>
       <table class="table">
-        <thead><tr><th>Mes</th><th>Lucro EVS</th><th>Vendas</th><th>Total</th></tr></thead>
+        <thead><tr><th>Mes</th><th>Faturamento</th><th>Lucro</th></tr></thead>
         <tbody>
-          ${rows.map((r)=>`<tr><td>${r.nome}</td><td>${formatMoney(r.lucroEvs)}</td><td>${formatMoney(r.lucroVendas)}</td><td><strong>${formatMoney(r.total)}</strong></td></tr>`).join("")}
+          ${rows.map((r)=>`<tr><td>${r.nome}</td><td>${formatMoney(r.faturamento)}</td><td style="color:${r.lucro>=0?"#2e7d32":"#c62828"}"><strong>${formatMoney(r.lucro)}</strong></td></tr>`).join("")}
+          <tr><td><strong>TOTAL</strong></td><td><strong>${formatMoney(fat)}</strong></td><td><strong>${formatMoney(luc)}</strong></td></tr>
         </tbody>
       </table>
-      <p><strong>Total do ano: ${formatMoney(total)}</strong></p>
     `);
   };
 
   $("#btnRelatorioRecrutamento").onclick = () => {
-    const m = monthStats(data, ano, mes);
-    const metas = store.getMetas(ano, mes);
-    const list = m.rec.map((r) => `
-      <div class="relatorio-item">
-        <div><strong>${escapeHtml(r.nome)}</strong> · ${r.tipo === "D" ? "Distribuidor" : "Supervisor"} · dia ${r.dia}</div>
-        <button class="btn-apagar" data-rec="${r.id}">Apagar</button>
-      </div>`).join("") || `<p class="muted">Nenhum recrutamento neste mes.</p>`;
+    const months = yearRecrutamento(data, ano);
+    const totD = months.reduce((s, r) => s + r.dist, 0);
+    const totS = months.reduce((s, r) => s + r.sup, 0);
     openModal(`
-      <h3>Recrutamento · ${MESES[mes]} ${ano}</h3>
-      <p>D ${m.dist}/${metas.d || 0} · S ${m.sup}/${metas.s || 0}</p>
-      ${list}
+      <h3>RELATORIO DE RECRUTAMENTO ${ano}</h3>
+      <p><strong>DISTRIBUIDORES ${totD}</strong> · <strong>SUPERVISORES ${totS}</strong></p>
+      <h4>Resumo por mes</h4>
+      <table class="table">
+        <thead><tr><th>Mes</th><th>D</th><th>S</th></tr></thead>
+        <tbody>${months.map((r)=>`<tr><td>${r.nome}</td><td>${r.dist}</td><td>${r.sup}</td></tr>`).join("")}</tbody>
+      </table>
+      ${months.map((r) => r.list.length ? `
+        <h4>${r.nome}</h4>
+        ${r.list.map((x)=>`<div class="relatorio-item"><div>• ${escapeHtml(x.nome)} · ${x.tipo==="D"?"Distribuidor":"Supervisor"} · ${new Date(x.ts).toLocaleString("pt-BR")}</div>
+        <button class="btn-apagar" data-rec="${x.id}">Apagar</button></div>`).join("")}
+      ` : "").join("")}
     `);
     $("#relatorio").querySelectorAll("[data-rec]").forEach((b) => b.onclick = async () => {
       if (await confirmModal("Apagar este registro?")) { store.removeById("recrutamento", b.dataset.rec); modal.classList.remove("show"); refresh(); }

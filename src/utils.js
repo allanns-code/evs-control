@@ -54,11 +54,23 @@ export function projectMonth(current, ano, mesIndex) {
   const anoAtual = hoje.getFullYear();
   const mesAtual = hoje.getMonth();
   const totalDias = daysInMonth(ano, mesIndex);
+  if (!current) return null;
   if (ano > anoAtual || (ano === anoAtual && mesIndex > mesAtual)) return null;
   if (ano < anoAtual || (ano === anoAtual && mesIndex < mesAtual)) return current;
   const dia = hoje.getDate();
   if (!dia) return current;
   return (current / dia) * totalDias;
+}
+
+export function projectionLabel(current, ano, mesIndex) {
+  const hoje = new Date();
+  const anoAtual = hoje.getFullYear();
+  const mesAtual = hoje.getMonth();
+  if (!current) return "Projecao: —";
+  if (ano > anoAtual || (ano === anoAtual && mesIndex > mesAtual)) return "Projecao: —";
+  if (ano < anoAtual || (ano === anoAtual && mesIndex < mesAtual)) return `Resultado Final: ${formatMoney(current)}`;
+  const projected = (current / hoje.getDate()) * daysInMonth(ano, mesIndex);
+  return `Projecao: ${formatMoney(projected)}`;
 }
 
 export function averageDaily(total, ano, mesIndex) {

@@ -147,17 +147,19 @@ function emptyUserData(user) {
     cartelas: [],
     colaboradores: [],
     contas: [
-      { id: "clf", sigla: "CLF", nome: "Liberdade Financeira", pct: 20 },
+      { id: "clf", sigla: "CLF", nome: "Liberdade Financeira", pct: 10 },
       { id: "aqb", sigla: "AQB", nome: "Aquisicao de bens", pct: 10 },
       { id: "sis", sigla: "SIS", nome: "Sistema", pct: 10 },
       { id: "nec", sigla: "NEC", nome: "Necessidades Basicas", pct: 50 },
-      { id: "play", sigla: "PLAY", nome: "Diversao", pct: 5 },
-      { id: "doa", sigla: "DOA", nome: "Doacao", pct: 5 },
+      { id: "play", sigla: "PLAY", nome: "Diversao", pct: 10 },
+      { id: "doa", sigla: "DOA", nome: "Doacao", pct: 10 },
     ],
     entradasGestao: { vendas: 0, royalties: 0, bonus: 0, outros: 0 },
     precificador: [],
     lastAcesso: null,
     lastVenda: null,
+    cartelaMovs: [],
+    fechamentoFlags: {},
     createdAt: Date.now(),
   };
 }

@@ -73,3 +73,29 @@ export function yearStats(data, ano) {
     };
   });
 }
+
+export function annualReport(data, ano) {
+  return MESES.map((_, mes) => {
+    const m = monthStats(data, ano, mes);
+    const lucro = m.fatAcessos * 0.4 + m.lucroVendas;
+    return {
+      mes,
+      nome: MESES[mes],
+      faturamento: m.faturamento,
+      lucro,
+    };
+  });
+}
+
+export function yearRecrutamento(data, ano) {
+  return MESES.map((_, mes) => {
+    const rec = filterPeriod(data.recrutamento, ano, mes);
+    return {
+      mes,
+      nome: MESES[mes],
+      dist: rec.filter((r) => r.tipo === "D").length,
+      sup: rec.filter((r) => r.tipo === "S").length,
+      list: rec,
+    };
+  });
+}

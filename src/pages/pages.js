@@ -208,37 +208,50 @@ export function renderFechamento(root) {
     root.querySelector("#dia").innerHTML = Array.from({length:n},(_,i)=>`<option value="${i+1}" ${i+1===dia?"selected":""}>Dia ${i+1}</option>`).join("");
   }
   fillDays();
+  function custoAjustadoDia(ds, plus) {
+    return ds.custo + (plus ? ds.lucro * 0.1 : 0);
+  }
   function refresh() {
     const data = store.data();
     const d = dayStats(data, ano, mes, dia);
-    const m = monthStats(data, ano, mes);
-    const plus = root.querySelector("#mais10").checked;
-    const custoDia = d.custo + (plus ? d.lucro * 0.1 : 0);
+    const plus = store.getFechamentoFlag(ano, mes, dia);
+    root.querySelector("#mais10").checked = plus;
+    const custoDia = custoAjustadoDia(d, plus);
     const enviosDia = (data.enviosCusto || []).filter((e) => Number(e.ano)===ano && Number(e.mes)===mes && Number(e.dia)===dia);
     const enviosMes = (data.enviosCusto || []).filter((e) => Number(e.ano)===ano && Number(e.mes)===mes);
     const totDia = enviosDia.reduce((s,e)=>s+Number(e.valor),0);
     const totMes = enviosMes.reduce((s,e)=>s+Number(e.valor),0);
-    root.querySelector("#custoDia").textContent = formatMoney(d.custo);
-    root.querySelector("#custoAjustado").textContent = formatMoney(custoDia);
-    root.querySelector("#totalEnvio").textContent = formatMoney(totDia);
-    root.querySelector("#faltaDia").textContent = formatMoney(Math.max(0, custoDia - totDia));
-    root.querySelector("#custoMes").textContent = formatMoney(m.custoVendas);
-    root.querySelector("#faltaMes").textContent = formatMoney(Math.max(0, m.custoVendas - totMes));
-    root.querySelector("#listaEnvios").innerHTML = enviosMes.map((e)=>`<div class="relatorio-item"><div>Dia ${e.dia} · ${formatMoney(e.valor)}</div></div>`).join("") || `<p class="muted">Nenhum envio.</p>`;
     const diasMes = new Date(ano, mes+1, 0).getDate();
+    let custoMesAjustado = 0;
     const pend = [];
     for (let i=1;i<=diasMes;i++) {
       const ds = dayStats(data, ano, mes, i);
-      if (ds.custo <= 0) continue;
+      const fl = store.getFechamentoFlag(ano, mes, i);
+      const ca = custoAjustadoDia(ds, fl);
+      custoMesAjustado += ca;
+      if (ca <= 0) continue;
       const env = (data.enviosCusto||[]).filter((e)=>Number(e.dia)===i && Number(e.mes)===mes && Number(e.ano)===ano).reduce((s,e)=>s+Number(e.valor),0);
-      if (env < ds.custo) pend.push(`Dia ${i} · falta ${formatMoney(ds.custo-env)}`);
+      const falta = ca - env;
+      if (falta > 0) pend.push(`Dia ${i} · falta ${formatMoney(falta)}${fl ? " · +10% aplicado" : ""}`);
     }
+    const faltaDia = Math.max(0, custoDia - totDia);
+    root.querySelector("#custoDia").textContent = formatMoney(d.custo);
+    root.querySelector("#custoAjustado").textContent = formatMoney(custoDia);
+    root.querySelector("#totalEnvio").textContent = formatMoney(totDia);
+    root.querySelector("#faltaDia").textContent = faltaDia <= 0 ? "OK" : formatMoney(faltaDia);
+    root.querySelector("#custoMes").textContent = formatMoney(custoMesAjustado);
+    const faltaMes = Math.max(0, custoMesAjustado - totMes);
+    root.querySelector("#faltaMes").textContent = faltaMes <= 0 ? "OK" : formatMoney(faltaMes);
+    root.querySelector("#listaEnvios").innerHTML = enviosDia.map((e)=>`<div class="relatorio-item"><div>${formatMoney(e.valor)}</div></div>`).join("") || `<p class="muted">Nenhum envio neste dia.</p>`;
     root.querySelector("#pendentes").innerHTML = pend.length ? pend.map((p)=>`<div>${p}</div>`).join("") : `<p class="muted">Nenhum dia pendente.</p>`;
   }
   root.querySelector("#ano").onchange = (e) => { ano = Number(e.target.value); fillDays(); refresh(); };
   root.querySelector("#mes").onchange = (e) => { mes = Number(e.target.value); fillDays(); refresh(); };
   root.querySelector("#dia").onchange = (e) => { dia = Number(e.target.value); refresh(); };
-  root.querySelector("#mais10").onchange = refresh;
+  root.querySelector("#mais10").onchange = () => {
+    store.setFechamentoFlag(ano, mes, dia, root.querySelector("#mais10").checked);
+    refresh();
+  };
   root.querySelector("#btnEnvio").onclick = () => {
     const valor = Number(root.querySelector("#valorEnvio").value);
     if (!valor) { toast("Informe o valor", "err"); return; }
@@ -585,30 +598,65 @@ export function renderColaboradores(root) {
 export function renderCartelas(root) {
   if (!guard()) return;
   root.innerHTML = pageShell("Cartelas antecipadas", "Controle o saldo de cartelas por cliente", `
+    <div class="card" style="background:#fff8e8">
+      <p><strong>Como usar</strong></p>
+      <p class="muted">No dia do pagamento, lance o valor total da cartela em Acessos. Para cada uso, lance o nome do cliente com valor 0,00. O saldo desconta so quando o valor e 0,00.</p>
+    </div>
     <div class="card">
       <form id="form">
-        <input name="cliente" placeholder="Nome do cliente" required />
-        <input name="qtd" type="number" min="1" placeholder="Quantidade de cartelas" required />
+        <input name="cliente" placeholder="Nome do cliente" required autocomplete="off" />
+        <input name="qtd" type="number" min="1" placeholder="Quantidade de acessos adquiridos" required />
         <button>Adicionar cartelas</button>
       </form>
     </div>
-    <div class="card" id="lista"></div>
+    <div class="card">
+      <input id="buscaCartela" placeholder="Pesquisar cliente" />
+      <div id="lista"></div>
+    </div>
+    <div class="modal" id="modalCartela">
+      <div class="modal-content">
+        <div class="close" id="closeCartela">X</div>
+        <div id="detalheCartela"></div>
+      </div>
+    </div>
   `);
-  function draw() {
-    const list = store.data().cartelas || [];
+  const modal = root.querySelector("#modalCartela");
+  function draw(filtro = "") {
+    const list = (store.data().cartelas || []).filter((c) => !filtro || c.cliente.toLowerCase().includes(filtro.toLowerCase()));
     root.querySelector("#lista").innerHTML = list.length
-      ? `<table class="table"><thead><tr><th>Cliente</th><th>Saldo</th></tr></thead><tbody>
-        ${list.map((c)=>`<tr><td>${escapeHtml(c.cliente)}</td><td><strong>${c.saldo}</strong></td></tr>`).join("")}
-      </tbody></table>`
+      ? list.map((c) => {
+          const cls = c.saldo < 0 ? "zero" : (c.saldo === 0 ? "zero" : "");
+          return `<div class="relatorio-item cartela-item" data-nome="${escapeHtml(c.cliente)}">
+            <div><strong>${escapeHtml(c.cliente)}</strong></div>
+            <div class="${cls}">Saldo: <strong>${c.saldo}</strong></div>
+          </div>`;
+        }).join("")
       : `<p class="muted">Nenhuma cartela cadastrada.</p>`;
+    root.querySelectorAll(".cartela-item").forEach((el) => {
+      el.onclick = () => {
+        const nome = el.dataset.nome;
+        const movs = (store.data().cartelaMovs || []).filter((m) => m.cliente.toLowerCase() === nome.toLowerCase());
+        const cart = (store.data().cartelas || []).find((c) => c.cliente.toLowerCase() === nome.toLowerCase());
+        root.querySelector("#detalheCartela").innerHTML = `
+          <h3>${escapeHtml(nome)}</h3>
+          <p>SALDO ATUAL <strong>${cart ? cart.saldo : 0}</strong></p>
+          ${movs.map((m) => `<div class="relatorio-item"><div>${new Date(m.ts).toLocaleString("pt-BR")} · ${m.tipo === "compra" ? "Compra" : "Uso"} · ${m.tipo === "compra" ? "+" : "-"}${m.qtd} · Saldo ${m.saldo}</div></div>`).join("") || `<p class="muted">Sem movimentacoes.</p>`}
+        `;
+        modal.classList.add("show");
+      };
+    });
   }
+  root.querySelector("#closeCartela").onclick = () => modal.classList.remove("show");
+  modal.onclick = (e) => { if (e.target === modal) modal.classList.remove("show"); };
+  root.querySelector("#buscaCartela").oninput = (e) => draw(e.target.value);
   root.querySelector("#form").onsubmit = (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    store.addCartela({ cliente: fd.get("cliente"), quantidade: Number(fd.get("qtd")) });
+    const qtd = Number(fd.get("qtd"));
+    store.addCartela({ cliente: fd.get("cliente"), quantidade: qtd });
     e.target.reset();
-    toast("Cartelas adicionadas");
-    draw();
+    toast(`Saldo atualizado. +${qtd} cartela(s)`);
+    draw(root.querySelector("#buscaCartela").value);
   };
   draw();
 }
