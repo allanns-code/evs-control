@@ -5,7 +5,7 @@ import {
   toast, confirmModal, escapeHtml, projectionLabel,
 } from "../utils.js";
 import { monthStats, dayStats, annualReport, yearRecrutamento } from "../compute.js";
-import { buscarProdutos, custoComDesconto } from "../catalog.js";
+import { buscarProdutos, custoComDesconto, produtoPorNome } from "../catalog.js";
 
 function logoSvg() {
   return `<svg class="logo-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
@@ -284,8 +284,17 @@ export function renderDashboard(root) {
     hideLast = true;
     refresh();
   };
-  $("#estadoCliente").onchange = (e) => store.setPerfil({ estado: e.target.value });
-  $("#descontoCliente").onchange = (e) => store.setPerfil({ desconto: Number(e.target.value) });
+  function recustearItens() {
+    const desc = Number($("#descontoCliente").value) || 0;
+    const estado = $("#estadoCliente").value;
+    itensVenda.forEach((it) => {
+      const p = produtoPorNome(it.produto);
+      if (p) it.custo = custoComDesconto(p.preco, desc, p, estado);
+    });
+    renderItens();
+  }
+  $("#estadoCliente").onchange = (e) => { store.setPerfil({ estado: e.target.value }); recustearItens(); };
+  $("#descontoCliente").onchange = (e) => { store.setPerfil({ desconto: Number(e.target.value) }); recustearItens(); };
   $("#btnSair").onclick = () => { store.logout(); navigate("/login"); };
   if ($("#btnAdmin")) $("#btnAdmin").onclick = () => navigate("/admin");
   if ($("#voltarAdmin")) $("#voltarAdmin").onclick = async () => { await store.stopImpersonate(); navigate("/admin"); };
@@ -367,19 +376,21 @@ export function renderDashboard(root) {
     const list = buscarProdutos(q);
     if (!list.length) { box.style.display = "none"; return; }
     const desc = Number($("#descontoCliente").value) || 0;
+    const estado = $("#estadoCliente").value;
     box.innerHTML = list.map((p) => `
       <div class="item-produto" data-id="${p.id}">
         ${escapeHtml(p.nome)}
-        <small style="display:block;color:#777">Custo: ${formatMoney(custoComDesconto(p.preco, desc))} · PV ${p.pv}</small>
+        <small style="display:block;color:#777">Custo: ${formatMoney(custoComDesconto(p.preco, desc, p, estado))} · PV ${p.pv}</small>
       </div>`).join("");
     box.style.display = "block";
     box.querySelectorAll(".item-produto").forEach((el) => {
       el.onclick = () => {
         const p = list.find((x) => x.id === el.dataset.id);
         const desc = Number($("#descontoCliente").value) || 0;
+        const estado = $("#estadoCliente").value;
         const existing = itensVenda.find((i) => i.produto === p.nome);
         if (existing) existing.quantidade += 1;
-        else itensVenda.push({ produto: p.nome, quantidade: 1, custo: custoComDesconto(p.preco, desc), pv: p.pv });
+        else itensVenda.push({ produto: p.nome, quantidade: 1, custo: custoComDesconto(p.preco, desc, p, estado), pv: p.pv });
         $("#vendaProdutoBusca").value = "";
         box.style.display = "none";
         renderItens();

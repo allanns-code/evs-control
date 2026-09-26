@@ -5,7 +5,7 @@ import {
   toast, confirmModal, escapeHtml, uid,
 } from "../utils.js";
 import { monthStats, dayStats, yearStats } from "../compute.js";
-import { PRODUTOS, custoComDesconto } from "../catalog.js";
+import { PRODUTOS, custoComDesconto, produtoPorId, produtoPorNome } from "../catalog.js";
 
 function guard() {
   if (!store.currentUser()) { navigate("/login"); return false; }
@@ -148,18 +148,21 @@ export function renderPrecos(root) {
   function draw() {
     const t = root.querySelector("#busca").value.toLowerCase();
     const desc = Number(root.querySelector("#desc").value);
-    const list = PRODUTOS.filter((p) => p.nome.toLowerCase().includes(t));
+    const estado = root.querySelector("#est").value;
+    const list = PRODUTOS.filter((p) =>
+      p.nome.toLowerCase().includes(t) || (p.detalhe || "").toLowerCase().includes(t)
+    );
     root.querySelector("#tbody").innerHTML = list.map((p) => `
       <tr>
-        <td>${escapeHtml(p.nome)}</td>
-        <td>${p.pv.toFixed(2)}</td>
+        <td>${escapeHtml(p.nome)}${p.detalhe ? `<br><small class="muted">${escapeHtml(p.detalhe)}</small>` : ""}</td>
+        <td>${Number(p.pv).toFixed(2)}</td>
         <td>${formatMoney(p.preco)}</td>
-        <td>${formatMoney(custoComDesconto(p.preco, desc))}</td>
+        <td>${formatMoney(custoComDesconto(p.preco, desc, p, estado))}</td>
       </tr>`).join("");
   }
   root.querySelector("#busca").oninput = draw;
   root.querySelector("#desc").onchange = (e) => { store.setPerfil({ desconto: Number(e.target.value) }); draw(); };
-  root.querySelector("#est").onchange = (e) => store.setPerfil({ estado: e.target.value });
+  root.querySelector("#est").onchange = (e) => { store.setPerfil({ estado: e.target.value }); draw(); };
   root.querySelector("#btnShare").onclick = async () => {
     const text = `Tabela de precos EVS Control\n${location.origin}${location.pathname}#/precos`;
     await navigator.clipboard.writeText(text);
@@ -459,9 +462,22 @@ export function renderInventario(root) {
   if (!guard()) return;
   const data = store.data();
   const perfil = data.perfil;
-  let rows = (data.inventario && data.inventario.length)
-    ? data.inventario.map((r)=>({...r}))
-    : PRODUTOS.map((p)=>({ id: p.id, nome: p.nome, fechado: 0, aberto: 0, preco: p.preco, pv: p.pv }));
+  const saved = (data.inventario || []).map((r) => {
+    const cat = produtoPorId(r.id) || produtoPorNome(r.nome);
+    return {
+      ...r,
+      id: cat?.id || r.id,
+      nome: cat?.nome || r.nome,
+      preco: cat?.preco ?? r.preco,
+      pv: cat?.pv ?? r.pv,
+    };
+  });
+  const seen = new Set(saved.map((r) => r.id));
+  let rows = saved.concat(
+    PRODUTOS.filter((p) => !seen.has(p.id)).map((p) => ({
+      id: p.id, nome: p.nome, fechado: 0, aberto: 0, preco: p.preco, pv: p.pv,
+    }))
+  );
   root.innerHTML = pageShell("Inventario", `${perfil.estado} · Desc ${perfil.desconto}%`, `
     <div class="card" style="overflow:auto">
       <table class="table">
@@ -489,29 +505,32 @@ export function renderInventario(root) {
       <div id="hist"></div>
     </div>
   `);
+  function custoItem(r) {
+    const cat = produtoPorId(r.id) || produtoPorNome(r.nome);
+    return custoComDesconto(r.preco, perfil.desconto, cat, perfil.estado);
+  }
   function totals() {
-    const desc = Number(perfil.desconto)||0;
     let totR = 0, totP = 0;
     rows.forEach((r) => {
       const q = (Number(r.fechado)||0) + (Number(r.aberto)||0);
-      totR += q * custoComDesconto(r.preco, desc);
-      totP += q * r.pv;
+      totR += q * custoItem(r);
+      totP += q * (Number(r.pv) || 0);
     });
     return { totR, totP };
   }
   function draw() {
-    const desc = Number(perfil.desconto)||0;
     const { totR, totP } = totals();
     root.querySelector("#tbody").innerHTML = rows.map((r,i)=>{
       const q = (Number(r.fechado)||0)+(Number(r.aberto)||0);
+      const custo = custoItem(r);
       return `<tr>
         <td>${escapeHtml(r.nome)}</td>
         <td><input data-i="${i}" data-k="fechado" type="number" value="${r.fechado||0}" style="margin:0;padding:6px;width:64px"></td>
         <td><input data-i="${i}" data-k="aberto" type="number" value="${r.aberto||0}" style="margin:0;padding:6px;width:64px"></td>
-        <td>${formatMoney(custoComDesconto(r.preco, desc))}</td>
-        <td>${r.pv}</td>
+        <td>${formatMoney(custo)}</td>
+        <td>${Number(r.pv).toFixed(2)}</td>
         <td>${(q*r.pv).toFixed(2)}</td>
-        <td>${formatMoney(q*custoComDesconto(r.preco, desc))}</td>
+        <td>${formatMoney(q*custo)}</td>
       </tr>`;
     }).join("");
     root.querySelector("#totR").textContent = formatMoney(totR);
