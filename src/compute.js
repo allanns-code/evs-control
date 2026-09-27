@@ -16,7 +16,8 @@ export function monthStats(data, ano, mes) {
   const fatAcessos = acessos.reduce((s, a) => s + Number(a.valor), 0);
   const fatVendas = vendas.reduce((s, v) => s + Number(v.valor), 0);
   const custoVendas = vendas.reduce((s, v) => s + Number(v.custo), 0);
-  const lucroAcessos = fatAcessos;
+  const custoAcessos = fatAcessos * 0.6;
+  const lucroAcessos = fatAcessos * 0.4;
   const lucroVendas = fatVendas - custoVendas;
   const faturamento = fatAcessos + fatVendas;
   const lucro = lucroAcessos + lucroVendas;
@@ -26,6 +27,7 @@ export function monthStats(data, ano, mes) {
     rec,
     fatAcessos,
     fatVendas,
+    custoAcessos,
     custoVendas,
     faturamento,
     lucro,
@@ -44,8 +46,10 @@ export function monthStats(data, ano, mes) {
 export function dayStats(data, ano, mes, dia) {
   const acessos = filterPeriod(data.acessos, ano, mes, dia);
   const vendas = filterPeriod(data.vendas, ano, mes, dia);
-  const entrada = acessos.reduce((s, a) => s + Number(a.valor), 0) + vendas.reduce((s, v) => s + Number(v.valor), 0);
-  const custo = vendas.reduce((s, v) => s + Number(v.custo), 0);
+  const fatAcessos = acessos.reduce((s, a) => s + Number(a.valor), 0);
+  const fatVendas = vendas.reduce((s, v) => s + Number(v.valor), 0);
+  const entrada = fatAcessos + fatVendas;
+  const custo = fatAcessos * 0.6 + vendas.reduce((s, v) => s + Number(v.custo), 0);
   return {
     acessos,
     vendas,
@@ -77,12 +81,11 @@ export function yearStats(data, ano) {
 export function annualReport(data, ano) {
   return MESES.map((_, mes) => {
     const m = monthStats(data, ano, mes);
-    const lucro = m.fatAcessos * 0.4 + m.lucroVendas;
     return {
       mes,
       nome: MESES[mes],
       faturamento: m.faturamento,
-      lucro,
+      lucro: m.lucro,
     };
   });
 }
