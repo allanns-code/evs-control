@@ -774,15 +774,20 @@ export function renderIndicar(root) {
 }
 
 export function renderSuporte(root) {
+  const waNumero = "27996872719";
+  const waLink = `https://wa.me/55${waNumero}`;
+  const email = "vivenzanutriclub@gmail.com";
   root.innerHTML = pageShell("Suporte EVS Control", "Precisa de ajuda?", `
     <div class="card">
-      <p>Esta e uma versao demonstrativa local. Seus dados ficam salvos neste navegador.</p>
-      <button type="button" id="copyW" class="btn-ghost">Copiar WhatsApp de exemplo</button>
-      <button type="button" id="copyE" class="btn-outline">Copiar e-mail de exemplo</button>
+      <p>Fale com o suporte pelo WhatsApp ou e-mail.</p>
+      <p><strong>WhatsApp</strong><br><a href="${waLink}" target="_blank" rel="noopener">(27) 99687-2719</a></p>
+      <p><strong>E-mail</strong><br><a href="mailto:${email}">${email}</a></p>
+      <button type="button" id="copyW" class="btn-ghost">Copiar WhatsApp</button>
+      <button type="button" id="copyE" class="btn-outline">Copiar e-mail</button>
     </div>
   `);
-  root.querySelector("#copyW").onclick = async () => { await navigator.clipboard.writeText("(11) 99999-0000"); toast("WhatsApp copiado"); };
-  root.querySelector("#copyE").onclick = async () => { await navigator.clipboard.writeText("suporte@evscontrol.app"); toast("E-mail copiado"); };
+  root.querySelector("#copyW").onclick = async () => { await navigator.clipboard.writeText(waNumero); toast("WhatsApp copiado"); };
+  root.querySelector("#copyE").onclick = async () => { await navigator.clipboard.writeText(email); toast("E-mail copiado"); };
 }
 
 export function renderProspectos(root) {
