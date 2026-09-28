@@ -249,8 +249,10 @@ export function renderFechamento(root) {
   }
   function pad(n) { return String(n).padStart(2, "0"); }
   function setFalta(el, valor) {
-    el.textContent = formatMoney(valor);
-    el.classList.toggle("is-pendente", valor > 0);
+    const ok = valor <= 0.009;
+    el.textContent = ok ? "OK" : formatMoney(valor);
+    el.classList.toggle("is-pendente", !ok);
+    el.classList.toggle("is-ok", ok);
   }
   function refresh() {
     root.querySelector("#fechSub").textContent = `Dia ${dia} · ${MESES[mes]} · ${ano}`;
