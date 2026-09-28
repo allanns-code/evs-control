@@ -175,31 +175,63 @@ export function renderFechamento(root) {
   if (!guard()) return;
   const t = todayParts();
   let ano = t.ano, mes = t.mes, dia = t.dia;
-  root.innerHTML = pageShell("Controle de Custos", "Fechamento do caixa", `
-    <div class="card">
-      <div class="filtros" style="margin:0 0 10px">
-        <select id="ano"></select>
-        <select id="mes">${MESES.map((m,i)=>`<option value="${i}" ${i===mes?"selected":""}>${m}</option>`).join("")}</select>
-        <select id="dia"></select>
-      </div>
-      <p><strong>Custo do dia:</strong> <span id="custoDia">R$ 0,00</span></p>
-      <label style="display:flex;gap:8px;align-items:center;font-size:13px">
-        <input type="checkbox" id="mais10" style="width:auto;margin:0" checked>
-        Soma + 10% do lucro ao custo do dia
-      </label>
-      <p class="muted" id="custoAjustado">R$ 0,00</p>
-      <label class="field">Valor enviado para conta de produtos</label>
-      <input id="valorEnvio" type="number" step="0.01" placeholder="0,00" />
-      <button id="btnEnvio">Registrar envio - conta de custo</button>
-      <p>Total enviado: <strong id="totalEnvio">R$ 0,00</strong></p>
-      <p>Falta enviar valor de custo do dia: <strong id="faltaDia">R$ 0,00</strong></p>
+  const lixoSvg = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#9aa0a6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
+  root.innerHTML = pageShell("Controle de Custos", `<span id="fechSub">Dia ${dia} · ${MESES[mes]} · ${ano}</span>`, `
+    <div class="filtros fech-filtros">
+      <select id="ano"></select>
+      <select id="mes">${MESES.map((m,i)=>`<option value="${i}" ${i===mes?"selected":""}>${m}</option>`).join("")}</select>
+      <select id="dia"></select>
     </div>
     <div class="card">
-      <p>Total de custos do mes para recompra: <strong id="custoMes">R$ 0,00</strong></p>
-      <p>Falta enviar para conta de custo acumulados do mes: <strong id="faltaMes">R$ 0,00</strong></p>
-      <h4>Envios feitos</h4>
+      <div class="fech-row">
+        <span class="fech-label">Custo do dia:</span>
+        <strong id="custoDia">R$ 0,00</strong>
+      </div>
+      <label class="fech-check">
+        <input type="checkbox" id="mais10" checked>
+        <span>Soma <strong>+ 10% do lucro</strong> ao custo do dia</span>
+      </label>
+      <div class="fech-row fech-hint-row">
+        <span class="fech-hint">Ou desmarque se nao quiser acrescentar.</span>
+        <strong id="custoAjustado">R$ 0,00</strong>
+      </div>
+    </div>
+    <div class="card">
+      <div class="fech-label" style="margin-bottom:8px">Valor enviado para conta de produtos</div>
+      <div class="envio-prefix">
+        <span>R$</span>
+        <input id="valorEnvio" type="number" step="0.01" min="0" placeholder="0,00" />
+      </div>
+      <button id="btnEnvio">Registrar envio - conta de custo</button>
+      <div class="fech-split">
+        <div>
+          <div class="fech-mini">Total enviado.</div>
+          <strong id="totalEnvio">R$ 0,00</strong>
+        </div>
+        <div>
+          <div class="fech-mini">Falta enviar valor de custo do dia.</div>
+          <strong id="faltaDia" class="fech-falta">R$ 0,00</strong>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="fech-label" style="margin-bottom:6px">Envios feito</div>
       <div id="listaEnvios"></div>
-      <h4>Dias com transferencia pendente</h4>
+    </div>
+    <div class="card">
+      <div class="fech-split">
+        <div>
+          <div class="fech-mini">Total de custos do mes para recompra.</div>
+          <strong id="custoMes">R$ 0,00</strong>
+        </div>
+        <div>
+          <div class="fech-mini">Falta enviar para conta de custo acumulados do mes.</div>
+          <strong id="faltaMes" class="fech-falta">R$ 0,00</strong>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="fech-label" style="margin-bottom:8px">Dias com transferencia pendente</div>
       <div id="pendentes"></div>
     </div>
   `);
@@ -208,13 +240,20 @@ export function renderFechamento(root) {
   root.querySelector("#ano").innerHTML = anos.map((a)=>`<option ${a===ano?"selected":""}>${a}</option>`).join("");
   function fillDays() {
     const n = new Date(ano, mes + 1, 0).getDate();
+    if (dia > n) dia = n;
     root.querySelector("#dia").innerHTML = Array.from({length:n},(_,i)=>`<option value="${i+1}" ${i+1===dia?"selected":""}>Dia ${i+1}</option>`).join("");
   }
   fillDays();
   function custoAjustadoDia(ds, plus) {
     return ds.custo + (plus ? ds.lucro * 0.1 : 0);
   }
+  function pad(n) { return String(n).padStart(2, "0"); }
+  function setFalta(el, valor) {
+    el.textContent = formatMoney(valor);
+    el.classList.toggle("is-pendente", valor > 0);
+  }
   function refresh() {
+    root.querySelector("#fechSub").textContent = `Dia ${dia} · ${MESES[mes]} · ${ano}`;
     const data = store.data();
     const d = dayStats(data, ano, mes, dia);
     const plus = store.getFechamentoFlag(ano, mes, dia);
@@ -225,28 +264,51 @@ export function renderFechamento(root) {
     const totDia = enviosDia.reduce((s,e)=>s+Number(e.valor),0);
     const totMes = enviosMes.reduce((s,e)=>s+Number(e.valor),0);
     const diasMes = new Date(ano, mes+1, 0).getDate();
+    let custoMesBase = 0;
     let custoMesAjustado = 0;
     const pend = [];
     for (let i=1;i<=diasMes;i++) {
       const ds = dayStats(data, ano, mes, i);
       const fl = store.getFechamentoFlag(ano, mes, i);
       const ca = custoAjustadoDia(ds, fl);
+      custoMesBase += ds.custo;
       custoMesAjustado += ca;
       if (ca <= 0) continue;
       const env = (data.enviosCusto||[]).filter((e)=>Number(e.dia)===i && Number(e.mes)===mes && Number(e.ano)===ano).reduce((s,e)=>s+Number(e.valor),0);
       const falta = ca - env;
-      if (falta > 0) pend.push(`Dia ${i} · falta ${formatMoney(falta)}${fl ? " · +10% aplicado" : ""}`);
+      if (falta > 0.009) {
+        pend.push({ i, fl, falta });
+      }
     }
     const faltaDia = Math.max(0, custoDia - totDia);
+    const faltaMes = Math.max(0, custoMesAjustado - totMes);
     root.querySelector("#custoDia").textContent = formatMoney(d.custo);
     root.querySelector("#custoAjustado").textContent = formatMoney(custoDia);
     root.querySelector("#totalEnvio").textContent = formatMoney(totDia);
-    root.querySelector("#faltaDia").textContent = faltaDia <= 0 ? "OK" : formatMoney(faltaDia);
-    root.querySelector("#custoMes").textContent = formatMoney(custoMesAjustado);
-    const faltaMes = Math.max(0, custoMesAjustado - totMes);
-    root.querySelector("#faltaMes").textContent = faltaMes <= 0 ? "OK" : formatMoney(faltaMes);
-    root.querySelector("#listaEnvios").innerHTML = enviosDia.map((e)=>`<div class="relatorio-item"><div>${formatMoney(e.valor)}</div></div>`).join("") || `<p class="muted">Nenhum envio neste dia.</p>`;
-    root.querySelector("#pendentes").innerHTML = pend.length ? pend.map((p)=>`<div>${p}</div>`).join("") : `<p class="muted">Nenhum dia pendente.</p>`;
+    setFalta(root.querySelector("#faltaDia"), faltaDia);
+    root.querySelector("#custoMes").textContent = formatMoney(custoMesBase);
+    setFalta(root.querySelector("#faltaMes"), faltaMes);
+    root.querySelector("#listaEnvios").innerHTML = enviosDia.length
+      ? enviosDia.map((e)=>`<div class="envio-item">
+          <strong>${formatMoney(e.valor)}</strong>
+          <button type="button" class="btn-lixo" data-envio="${e.id}" aria-label="Excluir envio">${lixoSvg}</button>
+        </div>`).join("")
+      : `<p class="muted">Nenhum envio neste dia.</p>`;
+    root.querySelector("#pendentes").innerHTML = pend.length
+      ? pend.map((p)=>`<div class="pend-item">
+          <div class="pend-dia">${pad(p.i)}/${pad(mes+1)}/${ano}${p.fl ? " · +10% aplicado" : ""}</div>
+          <div class="pend-falta">Falta enviar: ${formatMoney(p.falta)}</div>
+        </div>`).join("")
+      : `<p class="muted">Nenhum dia pendente.</p>`;
+    root.querySelectorAll("[data-envio]").forEach((b) => {
+      b.onclick = async () => {
+        if (await confirmModal("Deseja excluir este envio?")) {
+          store.removeById("enviosCusto", b.dataset.envio);
+          toast("Envio excluido");
+          refresh();
+        }
+      };
+    });
   }
   root.querySelector("#ano").onchange = (e) => { ano = Number(e.target.value); fillDays(); refresh(); };
   root.querySelector("#mes").onchange = (e) => { mes = Number(e.target.value); fillDays(); refresh(); };
@@ -257,7 +319,7 @@ export function renderFechamento(root) {
   };
   root.querySelector("#btnEnvio").onclick = () => {
     const valor = Number(root.querySelector("#valorEnvio").value);
-    if (!valor) { toast("Informe o valor", "err"); return; }
+    if (!valor || valor <= 0) { toast("Informe o valor", "err"); return; }
     store.addEnvioCusto({ dia, mes, ano, valor });
     root.querySelector("#valorEnvio").value = "";
     toast("Envio registrado");
