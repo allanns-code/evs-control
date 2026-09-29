@@ -879,68 +879,167 @@ export function renderColaboradores(root) {
 
 export function renderCartelas(root) {
   if (!guard()) return;
+  let relatorioNome = "";
   root.innerHTML = pageShell("Cartelas antecipadas", "Controle o saldo de cartelas por cliente", `
     <div class="card" style="background:#fff8e8">
       <p><strong>Como usar</strong></p>
       <p class="muted">No dia do pagamento, lance o valor total da cartela em Acessos. Para cada uso, lance o nome do cliente com valor 0,00. O saldo desconta so quando o valor e 0,00.</p>
     </div>
-    <div class="card">
-      <form id="form">
-        <input name="cliente" placeholder="Nome do cliente" required autocomplete="off" />
-        <input name="qtd" type="number" min="1" placeholder="Quantidade de acessos adquiridos" required />
-        <button>Adicionar cartelas</button>
-      </form>
+    <div class="card card-cartela">
+      <h3>Compra de Cartelas</h3>
+      <div class="relative">
+        <input id="nomeCompra" placeholder="Nome do cliente" autocomplete="off" />
+        <div id="listaClientesCartelas" class="sugestoes"></div>
+      </div>
+      <input id="qtdCompra" type="number" min="1" placeholder="Quantidade de acessos adquiridos" />
+      <button type="button" id="btnCompra">Registrar compra de acessos</button>
+      <p id="msgCompra" class="cart-msg"></p>
     </div>
-    <div class="card">
-      <input id="buscaCartela" placeholder="Pesquisar cliente" />
+    <div class="card card-cartela">
+      <h3>Saldo geral das cartelas</h3>
+      <div class="pesquisa-cartela">
+        <input id="buscaCartela" placeholder="Pesquisar cliente..." autocomplete="off" />
+      </div>
       <div id="lista"></div>
     </div>
     <div class="modal" id="modalCartela">
       <div class="modal-content">
-        <div class="close" id="closeCartela">X</div>
+        <h3 id="tituloRelatorio" style="text-align:center;margin-top:0">Relatorio</h3>
         <div id="detalheCartela"></div>
+        <button type="button" id="btnWaRel" class="btn-whatsapp">Enviar pelo WhatsApp</button>
+        <button type="button" id="closeCartela" class="btn-fechar">Fechar</button>
       </div>
     </div>
   `);
   const modal = root.querySelector("#modalCartela");
-  function draw(filtro = "") {
-    const list = (store.data().cartelas || []).filter((c) => !filtro || c.cliente.toLowerCase().includes(filtro.toLowerCase()));
+  function cartelas() { return store.data().cartelas || []; }
+  function movsDe(nome) {
+    return (store.data().cartelaMovs || [])
+      .filter((m) => m.cliente.toLowerCase() === nome.toLowerCase())
+      .sort((a, b) => b.ts - a.ts);
+  }
+  function saldoCls(n) {
+    if (n < 0) return "saldo-numero saldo-negativo";
+    if (n === 0) return "saldo-numero saldo-zero";
+    return "saldo-numero";
+  }
+  function textoRelatorio(nome) {
+    const cart = cartelas().find((c) => c.cliente.toLowerCase() === nome.toLowerCase());
+    const movs = movsDe(nome);
+    let texto = `RELATORIO DE CARTELAS\n\n`;
+    texto += `Cliente: ${nome}\n`;
+    texto += `Saldo atual: ${cart ? cart.saldo : 0}\n\n`;
+    texto += `Historico:\n`;
+    movs.forEach((m) => {
+      const tipo = m.tipo === "compra" ? "Compra" : "Uso";
+      const sinal = m.tipo === "compra" ? "+" : "-";
+      texto += `${new Date(m.ts).toLocaleString("pt-BR")} | ${tipo} | ${sinal}${m.qtd} | Saldo: ${m.saldo}\n`;
+    });
+    return texto;
+  }
+  function abrirWhatsApp(texto) {
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank");
+  }
+  function drawLista() {
+    const filtro = root.querySelector("#buscaCartela").value.trim().toLowerCase();
+    const list = [...cartelas()]
+      .sort((a, b) => a.cliente.localeCompare(b.cliente, "pt-BR"))
+      .filter((c) => !filtro || c.cliente.toLowerCase().includes(filtro));
+    if (!cartelas().length) {
+      root.querySelector("#lista").innerHTML = `<p class="cart-empty">Nenhuma cartela cadastrada.</p>`;
+      return;
+    }
     root.querySelector("#lista").innerHTML = list.length
-      ? list.map((c) => {
-          const cls = c.saldo < 0 ? "zero" : (c.saldo === 0 ? "zero" : "");
-          return `<div class="relatorio-item cartela-item" data-nome="${escapeHtml(c.cliente)}">
-            <div><strong>${escapeHtml(c.cliente)}</strong></div>
-            <div class="${cls}">Saldo: <strong>${c.saldo}</strong></div>
-          </div>`;
-        }).join("")
-      : `<p class="muted">Nenhuma cartela cadastrada.</p>`;
-    root.querySelectorAll(".cartela-item").forEach((el) => {
-      el.onclick = () => {
-        const nome = el.dataset.nome;
-        const movs = (store.data().cartelaMovs || []).filter((m) => m.cliente.toLowerCase() === nome.toLowerCase());
-        const cart = (store.data().cartelas || []).find((c) => c.cliente.toLowerCase() === nome.toLowerCase());
-        root.querySelector("#detalheCartela").innerHTML = `
-          <h3>${escapeHtml(nome)}</h3>
-          <p>SALDO ATUAL <strong>${cart ? cart.saldo : 0}</strong></p>
-          ${movs.map((m) => `<div class="relatorio-item"><div>${new Date(m.ts).toLocaleString("pt-BR")} · ${m.tipo === "compra" ? "Compra" : "Uso"} · ${m.tipo === "compra" ? "+" : "-"}${m.qtd} · Saldo ${m.saldo}</div></div>`).join("") || `<p class="muted">Sem movimentacoes.</p>`}
-        `;
-        modal.classList.add("show");
-      };
+      ? list.map((c) => `
+          <div class="saldo-item" data-nome="${escapeHtml(c.cliente)}">
+            <strong class="nome-cliente">${escapeHtml(c.cliente)}</strong>
+            <span class="${saldoCls(Number(c.saldo))}">${c.saldo}</span>
+          </div>`).join("")
+      : `<p class="cart-empty">Nenhum cliente encontrado.</p>`;
+    root.querySelectorAll(".saldo-item").forEach((el) => {
+      el.onclick = () => abrirRelatorio(el.dataset.nome);
     });
   }
+  function abrirRelatorio(nome) {
+    relatorioNome = nome;
+    const cart = cartelas().find((c) => c.cliente.toLowerCase() === nome.toLowerCase());
+    const movs = movsDe(nome);
+    root.querySelector("#tituloRelatorio").textContent = `Relatorio de Cartelas — ${nome}`;
+    root.querySelector("#detalheCartela").innerHTML = `
+      <div class="cart-saldo-box">
+        <div class="muted">SALDO ATUAL</div>
+        <div class="cart-saldo-num">${cart ? cart.saldo : 0}</div>
+      </div>
+      ${movs.length ? `<div class="inv-table-wrap"><table class="table">
+        <thead><tr><th>Data</th><th>Tipo</th><th>Qtd.</th><th>Saldo</th><th></th></tr></thead>
+        <tbody>${movs.map((m) => `
+          <tr class="${m.tipo === "compra" ? "mov-compra" : "mov-uso"}">
+            <td>${new Date(m.ts).toLocaleString("pt-BR")}</td>
+            <td>${m.tipo === "compra" ? "Compra" : "Uso"}</td>
+            <td>${m.tipo === "compra" ? "+" : "-"}${m.qtd}</td>
+            <td><strong>${m.saldo}</strong></td>
+            <td><button type="button" class="btn-lixo" data-mov="${m.id}" aria-label="Excluir">${`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#9aa0a6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`}</button></td>
+          </tr>`).join("")}</tbody>
+      </table></div>` : `<p class="muted" style="text-align:center">Nenhum movimento encontrado.</p>`}
+    `;
+    root.querySelectorAll("[data-mov]").forEach((b) => {
+      b.onclick = async (e) => {
+        e.stopPropagation();
+        if (await confirmModal("Tem certeza que deseja excluir este lancamento?")) {
+          store.removeCartelaMov(b.dataset.mov);
+          toast("Lancamento excluido");
+          abrirRelatorio(relatorioNome);
+          drawLista();
+        }
+      };
+    });
+    modal.classList.add("show");
+  }
+  const nomeInput = root.querySelector("#nomeCompra");
+  const listaSug = root.querySelector("#listaClientesCartelas");
+  nomeInput.addEventListener("input", () => {
+    const t = nomeInput.value.trim().toLowerCase();
+    listaSug.innerHTML = "";
+    if (!t) { listaSug.style.display = "none"; return; }
+    const found = cartelas().filter((c) => c.cliente.toLowerCase().includes(t)).slice(0, 20);
+    if (!found.length) { listaSug.style.display = "none"; return; }
+    listaSug.innerHTML = found.map((c) => `<div class="sugestao-item" data-nome="${escapeHtml(c.cliente)}">${escapeHtml(c.cliente)}</div>`).join("");
+    listaSug.style.display = "block";
+    listaSug.querySelectorAll(".sugestao-item").forEach((el) => {
+      el.onclick = () => { nomeInput.value = el.dataset.nome; listaSug.style.display = "none"; };
+    });
+  });
+  root.addEventListener("click", (e) => {
+    if (!listaSug.contains(e.target) && e.target !== nomeInput) {
+      listaSug.innerHTML = "";
+      listaSug.style.display = "none";
+    }
+  });
+  root.querySelector("#btnCompra").onclick = () => {
+    const nome = nomeInput.value.trim();
+    const qtd = Number(root.querySelector("#qtdCompra").value);
+    const msg = root.querySelector("#msgCompra");
+    if (!nome || !qtd || qtd <= 0) {
+      msg.textContent = "Preencha nome e quantidade corretamente";
+      msg.classList.add("err");
+      return;
+    }
+    store.addCartela({ cliente: nome, quantidade: qtd });
+    const cart = cartelas().find((c) => c.cliente.toLowerCase() === nome.toLowerCase());
+    msg.textContent = `Compra registrada. Saldo atual: ${cart ? cart.saldo : qtd}`;
+    msg.classList.remove("err");
+    nomeInput.value = "";
+    root.querySelector("#qtdCompra").value = "";
+    drawLista();
+  };
+  root.querySelector("#buscaCartela").oninput = drawLista;
   root.querySelector("#closeCartela").onclick = () => modal.classList.remove("show");
   modal.onclick = (e) => { if (e.target === modal) modal.classList.remove("show"); };
-  root.querySelector("#buscaCartela").oninput = (e) => draw(e.target.value);
-  root.querySelector("#form").onsubmit = (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const qtd = Number(fd.get("qtd"));
-    store.addCartela({ cliente: fd.get("cliente"), quantidade: qtd });
-    e.target.reset();
-    toast(`Saldo atualizado. +${qtd} cartela(s)`);
-    draw(root.querySelector("#buscaCartela").value);
+  root.querySelector("#btnWaRel").onclick = () => {
+    if (!relatorioNome) { toast("Abra um relatorio primeiro", "err"); return; }
+    abrirWhatsApp(textoRelatorio(relatorioNome));
   };
-  draw();
+  drawLista();
 }
 
 export function renderPlano(root) {

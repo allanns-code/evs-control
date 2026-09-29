@@ -823,3 +823,82 @@ label.field { display: block; text-align: left; font-size: 13px; font-weight: 70
   .inv-table { min-width: 0; }
   .inv-table .col-extra { display: none; }
 }
+
+.card-cartela {
+  background: #2B4ECC;
+  color: #fff;
+  border: none;
+}
+.card-cartela h3 {
+  margin: 0 0 12px;
+  text-align: center;
+  color: #fff;
+  font-size: 18px;
+}
+.card-cartela input {
+  border: none;
+  background: #fff;
+  color: #222;
+}
+.card-cartela > button {
+  background: #1a327a;
+}
+.cart-msg {
+  text-align: center;
+  font-weight: 700;
+  margin: 8px 0 0;
+  color: #fff;
+}
+.cart-msg.err { color: #ffdddd; }
+.pesquisa-cartela { margin: 0 0 12px; }
+.pesquisa-cartela input { margin: 0; }
+.cart-empty {
+  text-align: center;
+  color: rgba(255,255,255,.85);
+  font-weight: 700;
+  margin: 10px 0;
+}
+.saldo-item {
+  background: #fff;
+  color: #000;
+  padding: 12px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.nome-cliente {
+  color: #2B4ECC;
+  text-decoration: underline;
+}
+.saldo-numero { font-weight: 800; }
+.saldo-zero { color: #b8860b; }
+.saldo-negativo { color: #b00020; }
+.btn-whatsapp {
+  background: #25D366;
+  color: #fff;
+  margin-top: 14px;
+}
+.btn-fechar {
+  background: #b00020;
+  color: #fff;
+  margin-top: 10px;
+}
+.cart-saldo-box {
+  text-align: center;
+  margin-bottom: 16px;
+  padding: 15px;
+  background: #f5f5f5;
+  border-radius: 10px;
+}
+.cart-saldo-num {
+  font-size: 32px;
+  font-weight: 800;
+  margin-top: 5px;
+  color: #2B4ECC;
+}
+.mov-compra td { background: #f3fff6; }
+.mov-uso td { background: #fff7f7; }

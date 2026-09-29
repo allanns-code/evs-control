@@ -327,6 +327,7 @@ export const store = {
 
   addCartela({ cliente, quantidade }) {
     mutate((d) => {
+      d.cartelas = d.cartelas || [];
       d.cartelaMovs = d.cartelaMovs || [];
       const existing = d.cartelas.find((c) => c.cliente.toLowerCase() === cliente.toLowerCase());
       const qtd = Number(quantidade) || 0;
@@ -339,11 +340,33 @@ export const store = {
 
   useCartela(cliente) {
     mutate((d) => {
+      d.cartelas = d.cartelas || [];
       d.cartelaMovs = d.cartelaMovs || [];
       const existing = d.cartelas.find((c) => c.cliente.toLowerCase() === cliente.toLowerCase());
       if (!existing) return;
       existing.saldo -= 1;
       d.cartelaMovs.push({ id: uid(), cliente, tipo: "uso", qtd: 1, saldo: existing.saldo, ts: Date.now() });
+    });
+  },
+
+  removeCartelaMov(id) {
+    mutate((d) => {
+      d.cartelas = d.cartelas || [];
+      d.cartelaMovs = d.cartelaMovs || [];
+      const mov = d.cartelaMovs.find((x) => x.id === id);
+      if (!mov) return;
+      const nome = mov.cliente;
+      d.cartelaMovs = d.cartelaMovs.filter((x) => x.id !== id);
+      const movs = d.cartelaMovs
+        .filter((m) => m.cliente.toLowerCase() === nome.toLowerCase())
+        .sort((a, b) => a.ts - b.ts);
+      let saldo = 0;
+      movs.forEach((m) => {
+        saldo += m.tipo === "compra" ? Number(m.qtd) || 0 : -(Number(m.qtd) || 0);
+        m.saldo = saldo;
+      });
+      const cart = d.cartelas.find((c) => c.cliente.toLowerCase() === nome.toLowerCase());
+      if (cart) cart.saldo = saldo;
     });
   },
 
