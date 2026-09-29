@@ -738,3 +738,88 @@ label.field { display: block; text-align: left; font-size: 13px; font-weight: 70
 .pend-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
 .pend-dia { font-weight: 800; font-size: 14px; }
 .pend-falta { color: #c00000; font-weight: 700; font-size: 13px; margin-top: 2px; }
+
+.inv-config {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.inv-config > div {
+  flex: 1;
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+  text-align: center;
+  border: 1px solid #e5e5e5;
+}
+.inv-config span { display: block; font-size: 12px; color: #777; margin-bottom: 4px; }
+.inv-config strong { font-size: 18px; color: #2B4ECC; }
+.inv-table-wrap {
+  overflow-x: auto;
+  background: #fff;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  border: 1px solid #e5e5e5;
+}
+.inv-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+.inv-table th {
+  background: #2B4ECC;
+  color: #fff;
+  font-size: 12px;
+  padding: 10px 6px;
+  text-align: center;
+}
+.inv-table td { padding: 8px 6px; text-align: center; border-bottom: 1px solid rgba(0,0,0,.08); }
+.inv-nome { font-size: 13px; line-height: 1.25; text-align: center; }
+.inv-qtd {
+  width: 100%;
+  max-width: 72px;
+  height: 40px;
+  margin: 0;
+  padding: 4px;
+  text-align: center;
+  font-weight: 700;
+  border: 2px solid #bbb;
+}
+.inv-row.zerado td { background: #f8d7da; }
+.inv-row.baixo td { background: #fff3cd; }
+.inv-row.normal td { background: #d4edda; }
+.inv-resumo .fech-row { margin-bottom: 6px; }
+.btn-zerar { background: #c0392b; color: #fff; margin: 0; }
+.inv-modal-kpis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.inv-modal-kpis > div {
+  background: #EEF3FF;
+  border-radius: 12px;
+  padding: 12px;
+  text-align: center;
+}
+.inv-modal-kpis span { display: block; font-size: 12px; color: #555; margin-bottom: 4px; }
+.inv-modal-kpis strong { color: #2B4ECC; font-size: 16px; }
+.inv-saldo {
+  margin: 8px 0 14px;
+  padding: 14px;
+  background: #EEF3FF;
+  border-radius: 12px;
+  text-align: center;
+}
+.inv-saldo span { display: block; font-size: 13px; font-weight: 700; color: #2B4ECC; }
+.inv-saldo strong { display: block; margin-top: 4px; font-size: 22px; }
+.inv-hist-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 13px;
+}
+.inv-grafico { margin-top: 8px; }
+@media (max-width: 699px) {
+  .inv-table { min-width: 0; }
+  .inv-table .col-extra { display: none; }
+}

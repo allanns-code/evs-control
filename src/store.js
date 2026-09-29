@@ -318,6 +318,13 @@ export const store = {
     mutate((d) => d.historicoInventario.unshift({ id: uid(), ts: Date.now(), ...snap }));
   },
 
+  updateHistoricoInventario(id, patch) {
+    mutate((d) => {
+      const item = (d.historicoInventario || []).find((x) => x.id === id);
+      if (item) Object.assign(item, patch);
+    });
+  },
+
   addCartela({ cliente, quantidade }) {
     mutate((d) => {
       d.cartelaMovs = d.cartelaMovs || [];

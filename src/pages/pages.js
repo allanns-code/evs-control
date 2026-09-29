@@ -1,7 +1,7 @@
 import { store } from "../store.js";
 import { navigate } from "../router.js";
 import {
-  MESES, ESTADOS, DESCONTOS, formatMoney, todayParts,
+  MESES, ESTADOS, DESCONTOS, formatMoney, parseMoney, todayParts,
   toast, confirmModal, escapeHtml, uid,
 } from "../utils.js";
 import { monthStats, dayStats, yearStats } from "../compute.js";
@@ -542,94 +542,293 @@ export function renderInventario(root) {
       id: p.id, nome: p.nome, fechado: 0, aberto: 0, preco: p.preco, pv: p.pv,
     }))
   );
-  root.innerHTML = pageShell("Inventario", `${perfil.estado} · Desc ${perfil.desconto}%`, `
-    <div class="card" style="overflow:auto">
-      <table class="table">
-        <thead><tr><th>Produto</th><th>Fechado</th><th>Aberto</th><th>Preco</th><th>PV</th><th>Total PV</th><th>Total</th></tr></thead>
-        <tbody id="tbody"></tbody>
-      </table>
-    </div>
-    <div class="card">
-      <p>Total estoque <strong id="totR">R$ 0,00</strong></p>
-      <p>PV total <strong id="totP">0,00</strong></p>
-      <div class="row-actions">
-        <button type="button" id="reg">Registrar</button>
-        <button type="button" id="zerar" class="btn-ghost">Zerar</button>
-      </div>
-    </div>
-    <div class="card">
-      <h3>Historico de Inventarios</h3>
-      <label class="field">Valor separado (custo) - Para recompra</label>
-      <input id="recompra" type="number" step="0.01" />
-      <label class="field">Pedidos feitos aguardando chegar</label>
-      <input id="pedidos" type="number" step="0.01" />
-      <label class="field">Cartao de credito (valor total devido)</label>
-      <input id="cartao" type="number" step="0.01" />
-      <p>Saldo do Inventario <strong id="saldo">R$ 0,00</strong></p>
-      <div id="hist"></div>
-    </div>
-  `);
+  let busca = "";
+  let editId = null;
+  const pvFmt = (n) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function custoItem(r) {
     const cat = produtoPorId(r.id) || produtoPorNome(r.nome);
     return custoComDesconto(r.preco, perfil.desconto, cat, perfil.estado);
   }
+  function qtd(r) { return (Number(r.fechado) || 0) + (Number(r.aberto) || 0); }
+  function stockClass(n) {
+    if (n <= 0) return "zerado";
+    if (n <= 3) return "baixo";
+    return "normal";
+  }
   function totals() {
     let totR = 0, totP = 0;
     rows.forEach((r) => {
-      const q = (Number(r.fechado)||0) + (Number(r.aberto)||0);
-      totR += q * custoItem(r);
-      totP += q * (Number(r.pv) || 0);
+      const n = qtd(r);
+      totR += n * custoItem(r);
+      totP += n * (Number(r.pv) || 0);
     });
     return { totR, totP };
   }
-  function draw() {
+  function saldoInv(estoque, rec, ped, car) {
+    return Number(estoque || 0) + Number(rec || 0) + Number(ped || 0) - Number(car || 0);
+  }
+  function histList() {
+    return store.data().historicoInventario || [];
+  }
+  root.innerHTML = pageShell("Inventario", "", `
+    <div class="inv-config">
+      <div><span>Estado</span><strong>${escapeHtml(perfil.estado || "--")}</strong></div>
+      <div><span>Desconto</span><strong>${perfil.desconto ?? "--"}%</strong></div>
+    </div>
+    <input id="buscaInv" type="search" placeholder="Buscar produto..." autocomplete="off" />
+    <p class="muted" id="invStatus"></p>
+    <div class="inv-table-wrap">
+      <table class="inv-table">
+        <thead>
+          <tr>
+            <th class="col-produto">Produto</th>
+            <th>Fechado</th>
+            <th>Aberto</th>
+            <th class="col-extra">Preco</th>
+            <th class="col-extra">PV</th>
+            <th class="col-extra">Total PV</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="card inv-resumo">
+      <div class="fech-row"><span>Total estoque</span><strong id="totR">R$ 0,00</strong></div>
+      <div class="fech-row"><span>PV total</span><strong id="totP">0,00</strong></div>
+      <div class="row-actions" style="margin-top:12px">
+        <button type="button" id="reg">Registrar</button>
+        <button type="button" id="zerar" class="btn-zerar">Zerar</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Historico de Inventarios</h3>
+      <div id="hist"></div>
+      <p class="fech-mini" style="margin-top:14px">Evolucao do saldo</p>
+      <div id="graficoInv" class="inv-grafico"></div>
+    </div>
+    <div class="modal" id="modalRegInv">
+      <div class="modal-content">
+        <h3>Registrar Inventario</h3>
+        <div class="inv-modal-kpis">
+          <div><span>Estoque</span><strong id="mEstoque">R$ 0,00</strong></div>
+          <div><span>PV Total</span><strong id="mPv">0,00</strong></div>
+        </div>
+        <label class="field">Valor separado (custo) - Para recompra</label>
+        <input id="mRec" type="text" inputmode="decimal" placeholder="R$ 0,00" />
+        <label class="field">Pedidos feitos aguardando chegar</label>
+        <input id="mPed" type="text" inputmode="decimal" placeholder="R$ 0,00" />
+        <label class="field">Cartao de credito (valor total devido)</label>
+        <input id="mCar" type="text" inputmode="decimal" placeholder="R$ 0,00" />
+        <div class="inv-saldo">
+          <span>Saldo do Inventario</span>
+          <strong id="mSaldo">R$ 0,00</strong>
+        </div>
+        <div class="row-actions">
+          <button type="button" id="mCancel" class="btn-ghost">Cancelar</button>
+          <button type="button" id="mOk">Registrar Inventario</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal" id="modalEditInv">
+      <div class="modal-content">
+        <h3>Editar Inventario</h3>
+        <label class="field">Estoque</label>
+        <input id="eEstoque" readonly />
+        <label class="field">PV Total</label>
+        <input id="ePv" readonly />
+        <label class="field">Recompra</label>
+        <input id="eRec" type="text" inputmode="decimal" />
+        <label class="field">Pedidos aguardando chegar</label>
+        <input id="ePed" type="text" inputmode="decimal" />
+        <label class="field">Cartao de credito</label>
+        <input id="eCar" type="text" inputmode="decimal" />
+        <div class="inv-saldo">
+          <span>Saldo do Inventario</span>
+          <strong id="eSaldo">R$ 0,00</strong>
+        </div>
+        <div class="row-actions">
+          <button type="button" id="eCancel" class="btn-ghost">Cancelar</button>
+          <button type="button" id="eOk">Salvar Alteracoes</button>
+        </div>
+      </div>
+    </div>
+  `);
+  const modalReg = root.querySelector("#modalRegInv");
+  const modalEdit = root.querySelector("#modalEditInv");
+  function setSaldoEl(el, valor) {
+    el.textContent = formatMoney(valor);
+    el.style.color = valor < 0 ? "#c62828" : "#2B4ECC";
+  }
+  function drawGrafico(list) {
+    const box = root.querySelector("#graficoInv");
+    const pontos = [...list].reverse();
+    if (pontos.length < 2) {
+      box.innerHTML = `<p class="muted">Registre ao menos 2 inventarios para ver o grafico.</p>`;
+      return;
+    }
+    const w = 320, h = 140, pad = 18;
+    const vals = pontos.map((p) => Number(p.saldo) || 0);
+    const min = Math.min(...vals, 0);
+    const max = Math.max(...vals, 0);
+    const span = max - min || 1;
+    const coords = vals.map((v, i) => {
+      const x = pad + (i * (w - pad * 2)) / (vals.length - 1);
+      const y = h - pad - ((v - min) / span) * (h - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    box.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="140">
+      <polyline fill="none" stroke="#2B4ECC" stroke-width="2.5" points="${coords.join(" ")}" />
+      ${coords.map((c) => `<circle cx="${c.split(",")[0]}" cy="${c.split(",")[1]}" r="3.2" fill="#2B4ECC" />`).join("")}
+    </svg>`;
+  }
+  function drawHist() {
+    const hist = histList();
+    root.querySelector("#hist").innerHTML = hist.length
+      ? hist.map((h) => `
+        <div class="inv-hist-item">
+          <div>
+            <div class="relatorio-nome">${new Date(h.ts).toLocaleString("pt-BR")}</div>
+            <div class="muted">Estoque ${formatMoney(h.estoque)} · PV ${pvFmt(h.pv)}</div>
+            <div class="muted">Recompra ${formatMoney(h.recompra)} · Pedidos ${formatMoney(h.pedidos)} · Cartao ${formatMoney(h.cartao)}</div>
+            <strong>Saldo ${formatMoney(h.saldo)}</strong>
+          </div>
+          <div class="acoes-relatorio">
+            <button type="button" data-edit="${h.id}" title="Editar">Editar</button>
+            <button type="button" class="btn-apagar" data-delh="${h.id}" title="Apagar">Apagar</button>
+          </div>
+        </div>`).join("")
+      : `<p class="muted">Nenhum inventario registrado.</p>`;
+    drawGrafico(hist);
+    root.querySelectorAll("[data-edit]").forEach((b) => {
+      b.onclick = () => openEdit(b.dataset.edit);
+    });
+    root.querySelectorAll("[data-delh]").forEach((b) => {
+      b.onclick = async () => {
+        if (await confirmModal("Tem certeza que deseja apagar este inventario?")) {
+          store.removeById("historicoInventario", b.dataset.delh);
+          toast("Inventario apagado");
+          drawHist();
+        }
+      };
+    });
+  }
+  function bindQty(inp) {
+    inp.addEventListener("focus", function () {
+      if (this.value === "0") setTimeout(() => this.select(), 0);
+    });
+    inp.onchange = () => {
+      const i = Number(inp.dataset.i);
+      const k = inp.dataset.k;
+      rows[i][k] = Number(inp.value) || 0;
+      store.setInventario(rows);
+      drawTable();
+    };
+  }
+  function drawTable() {
     const { totR, totP } = totals();
-    root.querySelector("#tbody").innerHTML = rows.map((r,i)=>{
-      const q = (Number(r.fechado)||0)+(Number(r.aberto)||0);
+    const q = busca.trim().toLowerCase();
+    const vis = rows.map((r, i) => ({ r, i })).filter(({ r }) => !q || String(r.nome).toLowerCase().includes(q));
+    root.querySelector("#tbody").innerHTML = vis.map(({ r, i }) => {
+      const n = qtd(r);
       const custo = custoItem(r);
-      return `<tr>
-        <td>${escapeHtml(r.nome)}</td>
-        <td><input data-i="${i}" data-k="fechado" type="number" value="${r.fechado||0}" style="margin:0;padding:6px;width:64px"></td>
-        <td><input data-i="${i}" data-k="aberto" type="number" value="${r.aberto||0}" style="margin:0;padding:6px;width:64px"></td>
-        <td>${formatMoney(custo)}</td>
-        <td>${Number(r.pv).toFixed(2)}</td>
-        <td>${(q*r.pv).toFixed(2)}</td>
-        <td>${formatMoney(q*custo)}</td>
+      return `<tr class="inv-row ${stockClass(n)}">
+        <td class="col-produto"><div class="inv-nome">${escapeHtml(r.nome)}</div></td>
+        <td><input data-i="${i}" data-k="fechado" class="inv-qtd" type="number" min="0" step="1" inputmode="numeric" value="${Number(r.fechado)||0}"></td>
+        <td><input data-i="${i}" data-k="aberto" class="inv-qtd" type="number" min="0" step="0.01" inputmode="decimal" value="${Number(r.aberto)||0}"></td>
+        <td class="col-extra">${formatMoney(custo)}</td>
+        <td class="col-extra">${pvFmt(r.pv)}</td>
+        <td class="col-extra">${pvFmt(n * (Number(r.pv)||0))}</td>
+        <td>${formatMoney(n * custo)}</td>
       </tr>`;
     }).join("");
     root.querySelector("#totR").textContent = formatMoney(totR);
-    root.querySelector("#totP").textContent = totP.toFixed(2);
-    const rec = Number(root.querySelector("#recompra").value)||0;
-    const ped = Number(root.querySelector("#pedidos").value)||0;
-    const car = Number(root.querySelector("#cartao").value)||0;
-    root.querySelector("#saldo").textContent = formatMoney(totR + ped - rec - car);
-    root.querySelectorAll("#tbody input").forEach((inp) => {
-      inp.onchange = () => { rows[Number(inp.dataset.i)][inp.dataset.k] = Number(inp.value)||0; store.setInventario(rows); draw(); };
-    });
-    const hist = store.data().historicoInventario || [];
-    root.querySelector("#hist").innerHTML = hist.map((h)=>`
-      <div class="relatorio-item">
-        <div>${new Date(h.ts).toLocaleString("pt-BR")}<br>Estoque ${formatMoney(h.estoque)} · PV ${Number(h.pv).toFixed(2)} · Saldo ${formatMoney(h.saldo)}</div>
-      </div>`).join("") || `<p class="muted">Nenhum historico.</p>`;
+    root.querySelector("#totP").textContent = pvFmt(totP);
+    root.querySelector("#invStatus").textContent = `${vis.length} produtos`;
+    root.querySelectorAll(".inv-qtd").forEach(bindQty);
   }
-  ["recompra","pedidos","cartao"].forEach((id)=> root.querySelector("#"+id).oninput = draw);
+  function syncModalSaldo() {
+    const { totR } = totals();
+    const rec = parseMoney(root.querySelector("#mRec").value);
+    const ped = parseMoney(root.querySelector("#mPed").value);
+    const car = parseMoney(root.querySelector("#mCar").value);
+    setSaldoEl(root.querySelector("#mSaldo"), saldoInv(totR, rec, ped, car));
+  }
+  function syncEditSaldo() {
+    const est = parseMoney(root.querySelector("#eEstoque").value);
+    const rec = parseMoney(root.querySelector("#eRec").value);
+    const ped = parseMoney(root.querySelector("#ePed").value);
+    const car = parseMoney(root.querySelector("#eCar").value);
+    setSaldoEl(root.querySelector("#eSaldo"), saldoInv(est, rec, ped, car));
+  }
+  function openEdit(id) {
+    const h = histList().find((x) => x.id === id);
+    if (!h) { toast("Inventario nao encontrado", "err"); return; }
+    editId = id;
+    root.querySelector("#eEstoque").value = formatMoney(h.estoque);
+    root.querySelector("#ePv").value = pvFmt(h.pv);
+    root.querySelector("#eRec").value = Number(h.recompra) ? pvFmt(h.recompra) : "";
+    root.querySelector("#ePed").value = Number(h.pedidos) ? pvFmt(h.pedidos) : "";
+    root.querySelector("#eCar").value = Number(h.cartao) ? pvFmt(h.cartao) : "";
+    syncEditSaldo();
+    modalEdit.classList.add("show");
+  }
+  root.querySelector("#buscaInv").oninput = (e) => { busca = e.target.value; drawTable(); };
   root.querySelector("#reg").onclick = () => {
     const { totR, totP } = totals();
-    const rec = Number(root.querySelector("#recompra").value)||0;
-    const ped = Number(root.querySelector("#pedidos").value)||0;
-    const car = Number(root.querySelector("#cartao").value)||0;
+    root.querySelector("#mEstoque").textContent = formatMoney(totR);
+    root.querySelector("#mPv").textContent = pvFmt(totP);
+    root.querySelector("#mRec").value = "";
+    root.querySelector("#mPed").value = "";
+    root.querySelector("#mCar").value = "";
+    syncModalSaldo();
+    modalReg.classList.add("show");
+  };
+  root.querySelector("#mCancel").onclick = () => modalReg.classList.remove("show");
+  modalReg.onclick = (e) => { if (e.target === modalReg) modalReg.classList.remove("show"); };
+  ["#mRec", "#mPed", "#mCar"].forEach((sel) => {
+    root.querySelector(sel).oninput = syncModalSaldo;
+  });
+  root.querySelector("#mOk").onclick = () => {
+    const { totR, totP } = totals();
+    const rec = parseMoney(root.querySelector("#mRec").value);
+    const ped = parseMoney(root.querySelector("#mPed").value);
+    const car = parseMoney(root.querySelector("#mCar").value);
     store.setInventario(rows);
-    store.addHistoricoInventario({ estoque: totR, pv: totP, recompra: rec, pedidos: ped, cartao: car, saldo: totR + ped - rec - car });
+    store.addHistoricoInventario({
+      estoque: totR, pv: totP, recompra: rec, pedidos: ped, cartao: car, saldo: saldoInv(totR, rec, ped, car),
+    });
+    modalReg.classList.remove("show");
     toast("Inventario registrado");
-    draw();
+    drawHist();
+  };
+  root.querySelector("#eCancel").onclick = () => modalEdit.classList.remove("show");
+  modalEdit.onclick = (e) => { if (e.target === modalEdit) modalEdit.classList.remove("show"); };
+  ["#eRec", "#ePed", "#eCar"].forEach((sel) => {
+    root.querySelector(sel).oninput = syncEditSaldo;
+  });
+  root.querySelector("#eOk").onclick = () => {
+    if (!editId) return;
+    const est = parseMoney(root.querySelector("#eEstoque").value);
+    const pv = parseMoney(root.querySelector("#ePv").value);
+    const rec = parseMoney(root.querySelector("#eRec").value);
+    const ped = parseMoney(root.querySelector("#ePed").value);
+    const car = parseMoney(root.querySelector("#eCar").value);
+    store.updateHistoricoInventario(editId, {
+      estoque: est, pv, recompra: rec, pedidos: ped, cartao: car, saldo: saldoInv(est, rec, ped, car),
+    });
+    modalEdit.classList.remove("show");
+    toast("Inventario atualizado");
+    drawHist();
   };
   root.querySelector("#zerar").onclick = async () => {
     if (!await confirmModal("Zerar todas as quantidades?")) return;
-    rows = rows.map((r)=>({...r, fechado:0, aberto:0}));
+    rows = rows.map((r) => ({ ...r, fechado: 0, aberto: 0 }));
     store.setInventario(rows);
-    draw();
+    drawTable();
   };
-  draw();
+  drawTable();
+  drawHist();
 }
 
 export function renderColaboradores(root) {
