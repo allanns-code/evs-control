@@ -203,12 +203,6 @@ export function publicUser(u) {
   return { id: u.id, nome: u.nome, email: u.email, role: u.role };
 }
 
-const SEED_LICENSES = [
-  { code: "MC-DEMO-2026", planoKey: "mensal", planoNome: "Mensal", dias: 30, preco: 7.9, comprador: "", status: "disponivel" },
-  { code: "MC-DEMO-2027", planoKey: "anual", planoNome: "Anual", dias: 365, preco: 69.9, comprador: "", status: "disponivel" },
-  { code: "MC-VEND-0001", planoKey: "trimestral", planoNome: "Trimestral", dias: 90, preco: 19.9, comprador: "Bruno Costa", status: "usada" },
-];
-
 export function seed() {
   setConfig("planos", getPlanos());
 
@@ -217,62 +211,17 @@ export function seed() {
     insertUser({ nome: "Administrador", email: "admin@evscontrol.app", senha: "admin123", role: "admin" });
   }
 
-  const ana = getUserByEmail("ana@evscontrol.app");
-  if (!ana) {
-    const anaUser = insertUser({ nome: "Ana Souza", email: "ana@evscontrol.app", senha: "123456" });
-    const d = emptyUserData(anaUser);
-    const now = new Date();
-    const dia = now.getDate();
-    const mes = now.getMonth();
-    const ano = now.getFullYear();
-    d.perfil.planoKey = "anual";
-    d.perfil.plano = "Anual";
-    d.perfil.validoAte = Date.now() + 365 * 86400000;
-    d.acessos = [
-      { id: uid("a_"), cliente: "Maria Lima", valor: 18, dia, mes, ano, ts: Date.now() - 3600000 },
-      { id: uid("a_"), cliente: "Joao Pedro", valor: 22, dia: Math.max(1, dia - 1), mes, ano, ts: Date.now() - 86400000 },
-    ];
-    d.vendas = [{
-      id: uid("v_"), cliente: "Patricia Alves", valor: 320, custo: 185.5, lucro: 134.5,
-      itens: [
-        { produto: "Shake Proteico Chocolate 550g", quantidade: 1, custo: 110.14 },
-        { produto: "Cha Concentrado Original 100g", quantidade: 1, custo: 85.09 },
-      ],
-      dia, mes, ano, ts: Date.now() - 7200000,
-    }];
-    d.cartelas = [{ id: uid("c_"), cliente: "Maria Lima", saldo: 4 }];
-    d.lastAcesso = { nome: "Maria Lima", valor: 18, dia, mes, ano };
-    d.lastVenda = { nome: "Patricia Alves", valor: 320, dia, mes, ano };
-    d.metas[`${ano}-${mes}`] = { d: 4, s: 1 };
-    setUserData(anaUser.id, d);
-  }
-
-  const bruno = getUserByEmail("bruno@evscontrol.app");
-  if (!bruno) {
-    const b = insertUser({ nome: "Bruno Costa", email: "bruno@evscontrol.app", senha: "123456" });
-    const d = getUserData(b.id);
-    d.perfil.planoKey = "mensal";
-    d.perfil.plano = "Mensal";
-    d.perfil.validoAte = Date.now() + 30 * 86400000;
-    setUserData(b.id, d);
-  }
-
-  if (!getUserByEmail("carla@evscontrol.app")) {
-    const c = insertUser({ nome: "Carla Mota", email: "carla@evscontrol.app", senha: "123456" });
-    const d = getUserData(c.id);
-    d.perfil.planoKey = "mensal";
-    d.perfil.plano = "Mensal";
-    d.perfil.validoAte = Date.now() - 3 * 86400000;
-    setUserData(c.id, d);
-  }
-
-  const licCount = db.prepare("SELECT COUNT(*) AS n FROM licenses").get().n;
-  if (!licCount) {
-    const stmt = db.prepare(
-      "INSERT INTO licenses (id, code, plano_key, plano_nome, dias, preco, comprador, status, created_at, used_at, user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-    );
-    SEED_LICENSES.forEach((l, i) => {
-      stmt.run(uid("l_"), l.code, l.planoKey, l.planoNome, l.dias, l.preco, l.comprador, l.status, Date.now() - i * 1000, l.status === "usada" ? Date.now() - 400000 : null, null);
-    });
+  if (!getConfig("clients_wiped_v1", false)) {
+    const clients = db.prepare("SELECT id FROM users WHERE role != 'admin'").all();
+    const delColab = db.prepare("DELETE FROM colaboradores WHERE owner_id = ?");
+    const delData = db.prepare("DELETE FROM user_data WHERE user_id = ?");
+    const delUser = db.prepare("DELETE FROM users WHERE id = ?");
+    for (const c of clients) {
+      delColab.run(c.id);
+      delData.run(c.id);
+      delUser.run(c.id);
+    }
+    db.exec("DELETE FROM licenses");
+    setConfig("clients_wiped_v1", true);
   }
 }
