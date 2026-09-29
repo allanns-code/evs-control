@@ -759,12 +759,21 @@ label.field { display: block; text-align: left; font-size: 13px; font-weight: 70
 }
 .inv-table-wrap {
   overflow-x: auto;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   background: #fff;
   border-radius: 4px;
   margin-bottom: 12px;
   border: 1px solid #e5e5e5;
+  scrollbar-width: thin;
+  scrollbar-color: #2B4ECC #e8e8e8;
 }
+.inv-table-wrap::-webkit-scrollbar { height: 8px; }
+.inv-table-wrap::-webkit-scrollbar-thumb {
+  background: #2B4ECC;
+  border-radius: 8px;
+}
+.inv-table-wrap::-webkit-scrollbar-track { background: #e8e8e8; }
 .inv-table {
   width: 100%;
   min-width: 850px;
@@ -800,6 +809,20 @@ label.field { display: block; text-align: left; font-size: 13px; font-weight: 70
 .inv-table .col-pv,
 .inv-table .col-total-pv,
 .inv-table .col-total { white-space: nowrap; }
+.inv-table thead th.col-produto,
+.inv-table td.col-produto {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+.inv-table thead th.col-produto {
+  z-index: 3;
+  background: #2B4ECC;
+}
+.inv-table td.col-produto { background: #fff; }
+.inv-row.zerado td.col-produto { background: #f8d7da; }
+.inv-row.baixo td.col-produto { background: #fff3cd; }
+.inv-row.normal td.col-produto { background: #d4edda; }
 .inv-nome {
   font-size: 16px;
   line-height: 1.25;
@@ -876,29 +899,26 @@ label.field { display: block; text-align: left; font-size: 13px; font-weight: 70
 }
 .inv-grafico { margin-top: 8px; }
 @media (max-width: 699px) {
+  .container-inv { padding-left: 6px; padding-right: 6px; }
   .inv-table {
-    min-width: 0;
-    width: 100%;
+    min-width: 860px;
+    width: 860px;
     table-layout: fixed;
   }
-  .inv-table .col-produto { width: 46%; }
-  .inv-table .col-fechado,
-  .inv-table .col-aberto { width: 17%; }
-  .inv-table .col-total { width: 20%; }
-  .inv-table .col-extra { display: none; }
+  .inv-table .col-extra { display: table-cell; }
   .inv-table th {
-    font-size: 15px;
-    padding: 11px 4px;
+    font-size: 14px;
+    padding: 11px 6px;
   }
   .inv-table td {
-    padding: 9px 4px;
-    font-size: 15px;
+    padding: 9px 6px;
+    font-size: 14px;
   }
-  .inv-nome { font-size: 15px; line-height: 1.2; }
+  .inv-nome { font-size: 14px; line-height: 1.2; }
   .inv-qtd {
-    max-width: none;
-    height: 44px;
-    font-size: 18px;
+    max-width: 88px;
+    height: 42px;
+    font-size: 16px;
   }
 }
 @media (min-width: 700px) {

@@ -577,6 +577,7 @@ export function renderInventario(root) {
     </div>
     <input id="buscaInv" type="search" placeholder="Buscar produto..." autocomplete="off" />
     <p class="muted" id="invStatus"></p>
+    <p class="muted inv-scroll-hint">Deslize a tabela para o lado para ver Preco, PV e Total</p>
     <div class="inv-table-wrap">
       <table class="inv-table">
         <thead>
