@@ -12,9 +12,9 @@ function guard() {
   return true;
 }
 
-function pageShell(title, sub, body, extra = "") {
+function pageShell(title, sub, body, extra = "", cls = "") {
   return `
-    <div class="container">
+    <div class="container${cls ? ` ${cls}` : ""}">
       <div class="page-head">
         <h1>${title}</h1>
         ${sub ? `<p>${sub}</p>` : ""}
@@ -582,12 +582,12 @@ export function renderInventario(root) {
         <thead>
           <tr>
             <th class="col-produto">Produto</th>
-            <th>Fechado</th>
-            <th>Aberto</th>
-            <th class="col-extra">Preco</th>
-            <th class="col-extra">PV</th>
-            <th class="col-extra">Total PV</th>
-            <th>Total</th>
+            <th class="col-fechado">Fechado</th>
+            <th class="col-aberto">Aberto</th>
+            <th class="col-extra col-preco">Preco</th>
+            <th class="col-extra col-pv">PV</th>
+            <th class="col-extra col-total-pv">Total PV</th>
+            <th class="col-total">Total</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -654,6 +654,7 @@ export function renderInventario(root) {
       </div>
     </div>
   `);
+  root.querySelector(".container")?.classList.add("container-inv");
   const modalReg = root.querySelector("#modalRegInv");
   const modalEdit = root.querySelector("#modalEditInv");
   function setSaldoEl(el, valor) {
@@ -734,12 +735,12 @@ export function renderInventario(root) {
       const custo = custoItem(r);
       return `<tr class="inv-row ${stockClass(n)}">
         <td class="col-produto"><div class="inv-nome">${escapeHtml(r.nome)}</div></td>
-        <td><input data-i="${i}" data-k="fechado" class="inv-qtd" type="number" min="0" step="1" inputmode="numeric" value="${Number(r.fechado)||0}"></td>
-        <td><input data-i="${i}" data-k="aberto" class="inv-qtd" type="number" min="0" step="0.01" inputmode="decimal" value="${Number(r.aberto)||0}"></td>
-        <td class="col-extra">${formatMoney(custo)}</td>
-        <td class="col-extra">${pvFmt(r.pv)}</td>
-        <td class="col-extra">${pvFmt(n * (Number(r.pv)||0))}</td>
-        <td>${formatMoney(n * custo)}</td>
+        <td class="col-fechado"><input data-i="${i}" data-k="fechado" class="inv-qtd" type="number" min="0" step="1" inputmode="numeric" value="${Number(r.fechado)||0}"></td>
+        <td class="col-aberto"><input data-i="${i}" data-k="aberto" class="inv-qtd" type="number" min="0" step="0.01" inputmode="decimal" value="${Number(r.aberto)||0}"></td>
+        <td class="col-extra col-preco">${formatMoney(custo)}</td>
+        <td class="col-extra col-pv">${pvFmt(r.pv)}</td>
+        <td class="col-extra col-total-pv">${pvFmt(n * (Number(r.pv)||0))}</td>
+        <td class="col-total">${formatMoney(n * custo)}</td>
       </tr>`;
     }).join("");
     root.querySelector("#totR").textContent = formatMoney(totR);
