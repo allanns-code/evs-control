@@ -809,20 +809,6 @@ label.field { display: block; text-align: left; font-size: 13px; font-weight: 70
 .inv-table .col-pv,
 .inv-table .col-total-pv,
 .inv-table .col-total { white-space: nowrap; }
-.inv-table thead th.col-produto,
-.inv-table td.col-produto {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-}
-.inv-table thead th.col-produto {
-  z-index: 3;
-  background: #2B4ECC;
-}
-.inv-table td.col-produto { background: #fff; }
-.inv-row.zerado td.col-produto { background: #f8d7da; }
-.inv-row.baixo td.col-produto { background: #fff3cd; }
-.inv-row.normal td.col-produto { background: #d4edda; }
 .inv-nome {
   font-size: 16px;
   line-height: 1.25;
@@ -900,24 +886,32 @@ label.field { display: block; text-align: left; font-size: 13px; font-weight: 70
 .inv-grafico { margin-top: 8px; }
 @media (max-width: 699px) {
   .container-inv { padding-left: 6px; padding-right: 6px; }
+  .inv-table-wrap { overflow-x: scroll; }
   .inv-table {
-    min-width: 860px;
-    width: 860px;
+    min-width: 760px;
+    width: 760px;
     table-layout: fixed;
   }
+  .inv-table .col-produto { width: 148px; }
+  .inv-table .col-fechado,
+  .inv-table .col-aberto { width: 82px; }
+  .inv-table .col-preco { width: 96px; }
+  .inv-table .col-pv { width: 72px; }
+  .inv-table .col-total-pv { width: 84px; }
+  .inv-table .col-total { width: 96px; }
   .inv-table .col-extra { display: table-cell; }
   .inv-table th {
-    font-size: 14px;
-    padding: 11px 6px;
+    font-size: 13px;
+    padding: 11px 4px;
   }
   .inv-table td {
-    padding: 9px 6px;
-    font-size: 14px;
+    padding: 8px 4px;
+    font-size: 13px;
   }
-  .inv-nome { font-size: 14px; line-height: 1.2; }
+  .inv-nome { font-size: 13px; line-height: 1.2; }
   .inv-qtd {
-    max-width: 88px;
-    height: 42px;
+    max-width: 72px;
+    height: 40px;
     font-size: 16px;
   }
 }
