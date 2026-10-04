@@ -2,7 +2,7 @@ import { store } from "../store.js";
 import { navigate } from "../router.js";
 import {
   MESES, ESTADOS, DESCONTOS, formatMoney, parseMoney, todayParts,
-  toast, confirmModal, escapeHtml, projectionLabel,
+  toast, confirmModal, confirmSensitive, escapeHtml, projectionLabel,
 } from "../utils.js";
 import { monthStats, dayStats, annualReport, yearRecrutamento } from "../compute.js";
 import { buscarProdutos, custoComDesconto, produtoPorNome } from "../catalog.js";
@@ -37,6 +37,10 @@ export function renderDashboard(root) {
   let hideLast = false;
 
   const impersonating = store.isImpersonating();
+  const can = (k) => store.can(k);
+  const actor = store.actor();
+  const showFinance = can("reports.financial");
+  const actorLabel = actor?.type === "colaborador" ? `${actor.nome} · ${actor.perfil === "gerente" ? "Gerente" : "Atendente"}` : user.nome;
   root.innerHTML = `
     <div class="container">
       ${impersonating ? `
@@ -48,16 +52,19 @@ export function renderDashboard(root) {
         ${logoSvg()}
         <div class="header-centro">
           <div class="header-titulo">EVS Control</div>
-          <div class="header-sub">Controle financeiro</div>
+          <div class="header-sub">${actor?.type === "colaborador" ? "Acesso colaborador" : "Controle financeiro"}</div>
         </div>
         <div class="header-direita">
-          <div class="header-usuario" id="usuarioNome">${escapeHtml(user.nome)}</div>
+          <div class="header-usuario" id="usuarioNome">${escapeHtml(actorLabel)}</div>
           <button class="btn-sair" id="btnSair">Sair</button>
           ${store.isAdmin() ? `<button class="btn-sair" id="btnAdmin" style="color:#FFD54F">Admin</button>` : ""}
-          <div class="config-produtos">
+          ${can("settings.edit") ? `<div class="config-produtos">
             <select id="estadoCliente">${ESTADOS.map((e) => `<option ${perfil.estado===e?"selected":""}>${e}</option>`).join("")}</select>
             <select id="descontoCliente">${DESCONTOS.map((d) => `<option value="${d}" ${Number(perfil.desconto)===d?"selected":""}>${d}%</option>`).join("")}</select>
-          </div>
+          </div>` : `<div class="config-produtos">
+            <input type="hidden" id="estadoCliente" value="${escapeHtml(perfil.estado || "SP")}" />
+            <input type="hidden" id="descontoCliente" value="${Number(perfil.desconto) || 42}" />
+          </div>`}
         </div>
         <div class="filtros">
           <select id="anoSelecionado">${anos.map((a)=>`<option ${a===ano?"selected":""}>${a}</option>`).join("")}</select>
@@ -68,37 +75,37 @@ export function renderDashboard(root) {
 
       <div class="resumo">
         <div class="box">
-          <div class="box-titulo">Faturamento mes atual</div>
+          <div class="box-titulo">${showFinance ? "Faturamento mes atual" : "Movimento do mes"}</div>
           <span id="mesFaturamento">R$ 0,00</span>
           <div class="box-sub" id="projecaoMes">Projecao: —</div>
         </div>
-        <div class="box">
+        ${showFinance ? `<div class="box">
           <div class="box-titulo">Lucro mes atual</div>
           <span id="mesLucro">R$ 0,00</span>
           <div class="box-sub" id="projecaoLucro">Projecao: —</div>
-        </div>
+        </div>` : ""}
       </div>
 
-      <div class="pv-box">
+      ${showFinance ? `<div class="pv-box">
         Pontos de volume <strong id="pontosVolume">0</strong>
         &nbsp; Projecao Pv: <strong id="projecaoPV">—</strong>
-      </div>
+      </div>` : ""}
 
-      <div class="dia-topo">
+      ${can("reports.view") ? `<div class="dia-topo">
         <button class="btn-relatorio" id="btnRelatorioMensal">Relatorio Mensal</button>
-        <button class="btn-relatorio" id="btnResumo">Resumo Ganhos</button>
+        ${showFinance ? `<button class="btn-relatorio" id="btnResumo">Resumo Ganhos</button>` : ""}
       </div>
       <div class="dia-topo">
         <button class="btn-relatorio" id="btnRelatorioDiario">Relatorio Diario</button>
-        <button class="btn-relatorio" id="btnRelatorioAnual">Relatorio Anual</button>
-      </div>
+        ${showFinance ? `<button class="btn-relatorio" id="btnRelatorioAnual">Relatorio Anual</button>` : ""}
+      </div>` : ""}
       <div class="total-mess">
         <span>Total acessos: <strong id="totalAcessosMes">0</strong></span>
         <span>Media diaria: <strong id="mediaAcessosDia">0</strong></span>
         <span>Ticket medio: <strong id="ticketMedio">R$ 0,00</strong></span>
       </div>
 
-      <div class="section">
+      ${can("access.create") || can("access.view") ? `<div class="section">
         <h3 class="titulo-acessos">Registro diario de acessos <span class="tag" id="diaAcessos">0</span></h3>
         <div class="relative">
           <input id="acessoNome" placeholder="Cliente" autocomplete="off" />
@@ -110,15 +117,15 @@ export function renderDashboard(root) {
           <span class="ultimo-nome" id="ultimoNome"></span>
           <span id="ultimoValor"></span>
         </div>
-        <button type="button" id="btnAdicionarAcesso">Adicionar Acesso</button>
-      </div>
+        ${can("access.create") ? `<button type="button" id="btnAdicionarAcesso">Adicionar Acesso</button>` : ""}
+      </div>` : ""}
 
-      <a href="#/cartelas" class="link-cartelas" id="linkCartelas">&gt;&gt; Cartelas antecipadas &lt;&lt;</a>
-      <div class="center" style="margin-bottom:16px">
+      ${can("cards.view") ? `<a href="#/cartelas" class="link-cartelas" id="linkCartelas">&gt;&gt; Cartelas antecipadas &lt;&lt;</a>` : ""}
+      ${can("customers.view") ? `<div class="center" style="margin-bottom:16px">
         <a href="#/pesquisa" class="link-pill">Pesquisa EVS</a>
-      </div>
+      </div>` : ""}
 
-      <div class="section">
+      ${can("sales.create") || can("sales.view") ? `<div class="section">
         <h3 class="titulo-acessos">Vendas de Produtos Fechados <span class="tag" id="diaVendas">0</span></h3>
         <a href="#/precos" class="link-soft">Tabela de precos</a>
         <input id="vendaNome" placeholder="Cliente" />
@@ -138,10 +145,10 @@ export function renderDashboard(root) {
           <span class="ultimo-nome" id="ultimaVendaNome"></span>
           <span id="ultimaVendaValor"></span>
         </div>
-        <button type="button" id="btnAdicionarVenda">Adicionar Venda</button>
-      </div>
+        ${can("sales.create") ? `<button type="button" id="btnAdicionarVenda">Adicionar Venda</button>` : ""}
+      </div>` : ""}
 
-      <div class="section">
+      ${can("customers.create") || can("customers.view") ? `<div class="section">
         <h3 class="titulo-acessos">
           Recrutamento mes
           <span>D</span><span class="tag" id="distMes">0</span>
@@ -158,50 +165,50 @@ export function renderDashboard(root) {
           </div>
         </div>
         <button type="button" class="btn-relatorio" id="btnRelatorioRecrutamento">Relatorio de Recrutamento</button>
-        <div style="display:flex;justify-content:center;gap:16px;margin:12px 0 8px">
-          <a href="#/prospectos" class="link-soft">Prospectos</a>
-          <a href="https://accounts.myherbalife.com/Account/Create?appId=1&locale=pt-BR&redirect=https://www.myherbalife.com/pt-BR/" target="_blank" rel="noopener" class="link-soft">Cadastro Herbalife</a>
-        </div>
-        <input id="distribuidorNome" placeholder="Nome do novo distribuidor" />
-        <button type="button" id="btnAdicionarDistribuidor">Adicionar Distribuidor</button>
-        <input id="supervisorNome" placeholder="Nome do novo supervisor" />
-        <button type="button" id="btnAdicionarSupervisor">Adicionar Supervisor</button>
-      </div>
+         <div style="display:flex;justify-content:center;gap:16px;margin:12px 0 8px">
+           <a href="#/prospectos" class="link-soft">Prospectos</a>
+           <a href="https://accounts.myherbalife.com/Account/Create?appId=1&locale=pt-BR&redirect=https://www.myherbalife.com/pt-BR/" target="_blank" rel="noopener" class="link-soft">Cadastro Herbalife</a>
+         </div>
+         ${can("customers.create") ? `<input id="distribuidorNome" placeholder="Nome do novo distribuidor" />
+         <button type="button" id="btnAdicionarDistribuidor">Adicionar Distribuidor</button>
+         <input id="supervisorNome" placeholder="Nome do novo supervisor" />
+         <button type="button" id="btnAdicionarSupervisor">Adicionar Supervisor</button>` : ""}
+      </div>` : ""}
 
-      <div class="fechamento">
+      ${can("cash.view") ? `<div class="fechamento">
         <div class="entrada">Entrada<strong id="diaEntrada">R$ 0,00</strong></div>
-        <div class="custo">Custo<strong id="diaCusto">R$ 0,00</strong></div>
-        <div class="lucro">Lucro<strong id="diaLucro">R$ 0,00</strong></div>
+        ${showFinance ? `<div class="custo">Custo<strong id="diaCusto">R$ 0,00</strong></div>
+        <div class="lucro">Lucro<strong id="diaLucro">R$ 0,00</strong></div>` : ""}
       </div>
       <div class="fechamento">
         <div class="entrada">Recebimentos</div>
         <div class="custo"><a href="#/fechamento" style="text-decoration:none;color:inherit;font-weight:700">Conta de Produtos</a></div>
-        <div class="lucro">Conta de lucro</div>
+        ${showFinance ? `<div class="lucro">Conta de lucro</div>` : ""}
       </div>
       <div class="center" style="margin:14px 0 4px">
         <a href="#/fechamento" class="link-cartelas" style="font-size:20px">Fechamento do caixa</a>
         <div class="hint">Clique acima para acessar o fechamento do caixa</div>
-      </div>
+      </div>` : ""}
 
-      <button class="btn-amber" id="btnIndicar">
+      ${can("plan.view") ? `<button class="btn-amber" id="btnIndicar">
         <div style="font-size:20px">Indique o EVS Control</div>
         <div style="font-size:14px;font-weight:500;margin-top:4px">Ganhe <strong>+30 dias gratis</strong> por cada amigo.</div>
       </button>
       <div class="center">
         <a href="#/plano">Consultar meu plano</a>
-        <span class="muted"> · </span>
-        <a href="#/plano">Alterar senha</a>
-      </div>
+        ${store.isOwner() ? `<span class="muted"> · </span><a href="#/plano">Alterar senha</a>` : ""}
+      </div>` : ""}
 
       <footer class="footer-chefe">
-        <button type="button" id="btnColab">Gerenciar colaboradores</button>
-        <button type="button" id="btnInv">Inventario - Estoque de produtos</button>
+        ${can("team.view") ? `<button type="button" id="btnColab">Gerenciar colaboradores</button>` : ""}
+        ${can("inventory.view") ? `<button type="button" id="btnInv">Inventario - Estoque de produtos</button>` : ""}
+        ${can("audit.view") ? `<button type="button" id="btnAudit">Auditoria</button>` : ""}
         <div class="footer-marca">
           <a href="https://www.youtube.com/watch?v=JgD_ctyhfEU" target="_blank" rel="noopener" class="marca-link">COMO USAR - EVS Control (c) ${t.ano}</a>
         </div>
         <div class="footer-links">
-          <a href="#/gestao">Gestao Financeira</a>
-          <a href="#/precificador">Precificador</a>
+          ${can("finance.view") ? `<a href="#/gestao">Gestao Financeira</a>` : ""}
+          ${can("pricing.view") ? `<a href="#/precificador">Precificador</a>` : ""}
           <a href="#/suporte">Suporte</a>
         </div>
       </footer>
@@ -241,39 +248,45 @@ export function renderDashboard(root) {
     } else $("#ultimaVenda").style.display = "none";
   }
 
+  function setText(id, value) {
+    const el = $(id);
+    if (el) el.textContent = value;
+  }
   async function refresh() {
     const m = monthStats(data, ano, mes);
     const d = dayStats(data, ano, mes, dia);
-    $("#mesFaturamento").textContent = formatMoney(m.faturamento);
-    $("#mesLucro").textContent = formatMoney(m.lucro);
-    $("#projecaoMes").textContent = projectionLabel(m.faturamento, ano, mes);
-    $("#projecaoLucro").textContent = projectionLabel(m.lucro, ano, mes);
-    $("#totalAcessosMes").textContent = m.totalAcessos;
-    $("#mediaAcessosDia").textContent = Number(m.mediaAcessos).toFixed(1);
-    $("#ticketMedio").textContent = formatMoney(m.ticket);
-    $("#diaAcessos").textContent = d.nAcessos;
-    $("#diaVendas").textContent = d.nVendas;
-    $("#diaAcessos").classList.toggle("zero", d.nAcessos === 0);
-    $("#diaVendas").classList.toggle("zero", d.nVendas === 0);
-    $("#distMes").textContent = m.dist;
-    $("#supMes").textContent = m.sup;
-    $("#distMes").classList.toggle("zero", m.dist === 0);
-    $("#supMes").classList.toggle("zero", m.sup === 0);
-    $("#diaEntrada").textContent = formatMoney(d.entrada);
-    $("#diaCusto").textContent = formatMoney(d.custo);
-    $("#diaLucro").textContent = formatMoney(d.lucro);
+    setText("#mesFaturamento", formatMoney(m.faturamento));
+    setText("#mesLucro", formatMoney(m.lucro));
+    setText("#projecaoMes", projectionLabel(m.faturamento, ano, mes));
+    setText("#projecaoLucro", projectionLabel(m.lucro, ano, mes));
+    setText("#totalAcessosMes", m.totalAcessos);
+    setText("#mediaAcessosDia", Number(m.mediaAcessos).toFixed(1));
+    setText("#ticketMedio", formatMoney(m.ticket));
+    setText("#diaAcessos", d.nAcessos);
+    setText("#diaVendas", d.nVendas);
+    $("#diaAcessos")?.classList.toggle("zero", d.nAcessos === 0);
+    $("#diaVendas")?.classList.toggle("zero", d.nVendas === 0);
+    setText("#distMes", m.dist);
+    setText("#supMes", m.sup);
+    $("#distMes")?.classList.toggle("zero", m.dist === 0);
+    $("#supMes")?.classList.toggle("zero", m.sup === 0);
+    setText("#diaEntrada", formatMoney(d.entrada));
+    setText("#diaCusto", formatMoney(d.custo));
+    setText("#diaLucro", formatMoney(d.lucro));
     const custoMes = Math.max(0, m.faturamento - m.lucro);
     const pv = custoMes > 0 ? custoMes / dolar : 0;
-    $("#pontosVolume").textContent = Math.floor(pv).toLocaleString("pt-BR");
+    setText("#pontosVolume", Math.floor(pv).toLocaleString("pt-BR"));
     const hoje = new Date();
     const mesAtual = hoje.getFullYear() === Number(ano) && hoje.getMonth() === Number(mes);
     const mesFuturo = Number(ano) > hoje.getFullYear() || (Number(ano) === hoje.getFullYear() && Number(mes) > hoje.getMonth());
-    if (mesFuturo || !pv) $("#projecaoPV").textContent = "—";
-    else if (mesAtual) $("#projecaoPV").textContent = Math.floor((pv / hoje.getDate()) * new Date(ano, mes + 1, 0).getDate()).toLocaleString("pt-BR");
-    else $("#projecaoPV").textContent = String(Math.floor(pv));
+    if ($("#projecaoPV")) {
+      if (mesFuturo || !pv) $("#projecaoPV").textContent = "—";
+      else if (mesAtual) $("#projecaoPV").textContent = Math.floor((pv / hoje.getDate()) * new Date(ano, mes + 1, 0).getDate()).toLocaleString("pt-BR");
+      else $("#projecaoPV").textContent = String(Math.floor(pv));
+    }
     const metas = store.getMetas(ano, mes);
-    $("#metaDistribuidores").value = metas.d || "";
-    $("#metaSupervisores").value = metas.s || "";
+    if ($("#metaDistribuidores")) $("#metaDistribuidores").value = metas.d || "";
+    if ($("#metaSupervisores")) $("#metaSupervisores").value = metas.s || "";
     refreshLast();
   }
 
@@ -293,22 +306,27 @@ export function renderDashboard(root) {
     });
     renderItens();
   }
-  $("#estadoCliente").onchange = (e) => { store.setPerfil({ estado: e.target.value }); recustearItens(); };
-  $("#descontoCliente").onchange = (e) => { store.setPerfil({ desconto: Number(e.target.value) }); recustearItens(); };
+  if ($("#estadoCliente") && $("#estadoCliente").tagName === "SELECT") {
+    $("#estadoCliente").onchange = (e) => { store.setPerfil({ estado: e.target.value }); recustearItens(); };
+  }
+  if ($("#descontoCliente") && $("#descontoCliente").tagName === "SELECT") {
+    $("#descontoCliente").onchange = (e) => { store.setPerfil({ desconto: Number(e.target.value) }); recustearItens(); };
+  }
   $("#btnSair").onclick = () => { store.logout(); navigate("/login"); };
   if ($("#btnAdmin")) $("#btnAdmin").onclick = () => navigate("/admin");
   if ($("#voltarAdmin")) $("#voltarAdmin").onclick = async () => { await store.stopImpersonate(); navigate("/admin"); };
-  $("#btnResumo").onclick = () => navigate("/resumo");
-  $("#btnIndicar").onclick = () => navigate("/indicar");
-  $("#btnColab").onclick = () => navigate("/colaboradores");
-  $("#btnInv").onclick = () => navigate("/inventario");
-  $("#linkCartelas").onclick = (e) => {
+  if ($("#btnResumo")) $("#btnResumo").onclick = () => navigate("/resumo");
+  if ($("#btnIndicar")) $("#btnIndicar").onclick = () => navigate("/indicar");
+  if ($("#btnColab")) $("#btnColab").onclick = () => navigate("/colaboradores");
+  if ($("#btnInv")) $("#btnInv").onclick = () => navigate("/inventario");
+  if ($("#btnAudit")) $("#btnAudit").onclick = () => navigate("/auditoria");
+  if ($("#linkCartelas")) $("#linkCartelas").onclick = (e) => {
     e.preventDefault();
     alert("Para o sistema de cartelas funcionar:\n\nDigite o valor total da venda da cartela no dia do pagamento no lancamento de acessos.\n\nPara cada cartela utilizada, digite o nome do cliente e digite 0,00 no valor.");
     navigate("/cartelas");
   };
 
-  $("#acessoNome").addEventListener("input", () => {
+  $("#acessoNome")?.addEventListener("input", () => {
     const box = $("#sugestoesClientes");
     const t = $("#acessoNome").value.trim().toLowerCase();
     if (!t) { box.style.display = "none"; return; }
@@ -325,14 +343,15 @@ export function renderDashboard(root) {
     });
   });
 
-  $("#btnAdicionarAcesso").onclick = () => {
+  if ($("#btnAdicionarAcesso")) $("#btnAdicionarAcesso").onclick = () => {
     const cliente = $("#acessoNome").value.trim();
     const raw = $("#acessoValor").value;
     if (!cliente || raw === "") { toast("Preencha todos os campos", "err"); return; }
     const valor = Number(String(raw).replace(",", "."));
     if (!Number.isFinite(valor) || valor < 0) { toast("Informe um valor valido", "err"); return; }
+    if (!can("access.create")) { toast("Operacao nao autorizada.", "err"); return; }
     store.addAcesso({ cliente, valor, dia, mes, ano });
-    if (valor === 0) store.useCartela(cliente);
+    if (valor === 0 && can("cards.use")) store.useCartela(cliente);
     $("#acessoNome").value = "";
     $("#acessoValor").value = "";
     $("#acessoNome").focus();
@@ -343,6 +362,7 @@ export function renderDashboard(root) {
 
   function renderItens() {
     const box = $("#itensVendaSelecionados");
+    if (!box) return;
     if (!itensVenda.length) { box.innerHTML = ""; atualizarResumo(); return; }
     box.innerHTML = itensVenda.map((it, i) => `
       <div class="linha-item">
@@ -363,13 +383,13 @@ export function renderDashboard(root) {
 
   function atualizarResumo() {
     const custo = itensVenda.reduce((s, i) => s + i.custo * i.quantidade, 0);
-    const venda = parseMoney($("#vendaValor").value);
-    $("#custoTotalVenda").textContent = formatMoney(custo);
-    $("#lucroVenda").textContent = formatMoney(venda - custo);
+    const venda = parseMoney($("#vendaValor")?.value);
+    if ($("#custoTotalVenda")) $("#custoTotalVenda").textContent = formatMoney(custo);
+    if ($("#lucroVenda")) $("#lucroVenda").textContent = formatMoney(venda - custo);
   }
-  $("#vendaValor").addEventListener("input", atualizarResumo);
+  $("#vendaValor")?.addEventListener("input", atualizarResumo);
 
-  $("#vendaProdutoBusca").addEventListener("input", () => {
+  $("#vendaProdutoBusca")?.addEventListener("input", () => {
     const box = $("#resultadosProdutosVenda");
     const q = $("#vendaProdutoBusca").value.trim();
     if (q.length < 2) { box.style.display = "none"; return; }
@@ -398,7 +418,7 @@ export function renderDashboard(root) {
     });
   });
 
-  $("#btnProdutoManual").onclick = () => {
+  if ($("#btnProdutoManual")) $("#btnProdutoManual").onclick = () => {
     const nome = prompt("Nome do produto");
     if (!nome) return;
     const custo = Number(prompt("Custo unitario") || 0);
@@ -406,9 +426,10 @@ export function renderDashboard(root) {
     renderItens();
   };
 
-  $("#btnAdicionarVenda").onclick = () => {
+  if ($("#btnAdicionarVenda")) $("#btnAdicionarVenda").onclick = () => {
     const cliente = $("#vendaNome").value.trim();
     const valor = parseMoney($("#vendaValor").value);
+    if (!can("sales.create")) { toast("Operacao nao autorizada.", "err"); return; }
     if (!cliente) { toast("Informe o cliente.", "err"); return; }
     if (!valor) { toast("Informe o valor de venda.", "err"); return; }
     if (!itensVenda.length) { toast("Adicione pelo menos um produto.", "err"); return; }
@@ -428,10 +449,10 @@ export function renderDashboard(root) {
       s: Number($("#metaSupervisores").value) || 0,
     });
   }
-  $("#metaDistribuidores").onchange = saveMeta;
-  $("#metaSupervisores").onchange = saveMeta;
+  if ($("#metaDistribuidores")) $("#metaDistribuidores").onchange = saveMeta;
+  if ($("#metaSupervisores")) $("#metaSupervisores").onchange = saveMeta;
 
-  $("#btnAdicionarDistribuidor").onclick = () => {
+  if ($("#btnAdicionarDistribuidor")) $("#btnAdicionarDistribuidor").onclick = () => {
     const nome = $("#distribuidorNome").value.trim();
     if (!nome) { toast("Informe o nome", "err"); return; }
     store.addRecrutamento({ nome, tipo: "D", dia, mes, ano });
@@ -439,7 +460,7 @@ export function renderDashboard(root) {
     toast("Distribuidor adicionado");
     refresh();
   };
-  $("#btnAdicionarSupervisor").onclick = () => {
+  if ($("#btnAdicionarSupervisor")) $("#btnAdicionarSupervisor").onclick = () => {
     const nome = $("#supervisorNome").value.trim();
     if (!nome) { toast("Informe o nome", "err"); return; }
     store.addRecrutamento({ nome, tipo: "S", dia, mes, ano });
@@ -457,37 +478,75 @@ export function renderDashboard(root) {
     modal.classList.add("show");
   }
 
-  $("#btnRelatorioDiario").onclick = async () => {
+  function saleActions(v) {
+    const parts = [];
+    if (can("sales.cancel")) parts.push(`<button class="btn-apagar" data-ven="${v.id}">Cancelar</button>`);
+    if (can("sales.refund")) parts.push(`<button class="btn-soft" data-ref="${v.id}">Estornar</button>`);
+    return parts.join("");
+  }
+  function accessAction(a) {
+    return can("access.delete") ? `<button class="btn-apagar" data-acc="${a.id}">Cancelar</button>` : "";
+  }
+  async function bindReportActions() {
+    $("#relatorio").querySelectorAll("[data-acc]").forEach((b) => b.onclick = async () => {
+      const acc = (store.data().acessos || []).find((x) => x.id === b.dataset.acc);
+      const ok = await confirmSensitive({
+        title: "Acao sensivel",
+        message: "Cancelar este acesso? O historico permanece na auditoria.",
+        details: acc ? `Cliente: ${acc.cliente}\nValor: ${formatMoney(acc.valor)}` : "",
+        confirmLabel: "Confirmar",
+      });
+      if (ok) { store.removeById("acessos", b.dataset.acc); modal.classList.remove("show"); refresh(); }
+    });
+    $("#relatorio").querySelectorAll("[data-ven]").forEach((b) => b.onclick = async () => {
+      const v = (store.data().vendas || []).find((x) => x.id === b.dataset.ven);
+      const ok = await confirmSensitive({
+        title: "Acao sensivel",
+        message: `Voce esta prestes a cancelar a venda.`,
+        details: v ? `Cliente: ${v.cliente}\nValor: ${formatMoney(v.valor)}\nData: ${new Date(v.ts).toLocaleString("pt-BR")}` : "",
+        confirmLabel: "Confirmar cancelamento",
+      });
+      if (ok) { store.removeById("vendas", b.dataset.ven, { status: "cancelada" }); modal.classList.remove("show"); refresh(); }
+    });
+    $("#relatorio").querySelectorAll("[data-ref]").forEach((b) => b.onclick = async () => {
+      const v = (store.data().vendas || []).find((x) => x.id === b.dataset.ref);
+      const ok = await confirmSensitive({
+        title: "Acao sensivel",
+        message: `Voce esta prestes a estornar a venda.`,
+        details: v ? `Cliente: ${v.cliente}\nValor: ${formatMoney(v.valor)}\nData: ${new Date(v.ts).toLocaleString("pt-BR")}` : "",
+        confirmLabel: "Confirmar estorno",
+      });
+      if (ok) { store.refundVenda(b.dataset.ref, "Estorno confirmado"); modal.classList.remove("show"); refresh(); }
+    });
+  }
+
+  if ($("#btnRelatorioDiario")) $("#btnRelatorioDiario").onclick = async () => {
     const d = dayStats(data, ano, mes, dia);
     const htmlAcessos = d.acessos.map((a) => `
       <div class="relatorio-item">
-        <div><div class="relatorio-nome">${escapeHtml(a.cliente)}</div><div>${formatMoney(a.valor)}</div></div>
-        <button class="btn-apagar" data-acc="${a.id}">Apagar</button>
+        <div><div class="relatorio-nome">${escapeHtml(a.cliente)}</div><div>${formatMoney(a.valor)}</div>${a.createdByName ? `<div class="muted">${escapeHtml(a.createdByName)}</div>` : ""}</div>
+        ${accessAction(a)}
       </div>`).join("") || `<p class="muted">Nenhum acesso neste dia.</p>`;
     const htmlVendas = d.vendas.map((v) => `
       <div class="relatorio-item">
         <div>
           <div class="relatorio-nome">${escapeHtml(v.cliente)}</div>
           <div>${v.itens.map((i)=>`${i.quantidade}x ${escapeHtml(i.produto)}`).join(", ")}</div>
-          <div><strong>${formatMoney(v.valor)}</strong> · lucro ${formatMoney(v.lucro)}</div>
+          <div><strong>${formatMoney(v.valor)}</strong>${showFinance ? ` · lucro ${formatMoney(v.lucro)}` : ""}</div>
+          ${v.createdByName ? `<div class="muted">${escapeHtml(v.createdByName)}</div>` : ""}
         </div>
-        <button class="btn-apagar" data-ven="${v.id}">Apagar</button>
+        ${saleActions(v)}
       </div>`).join("") || `<p class="muted">Nenhuma venda neste dia.</p>`;
     openModal(`
       <h3>Relatorio Diario · ${dia} ${MESES[mes]} ${ano}</h3>
-      <p class="muted">Entrada ${formatMoney(d.entrada)} · Custo ${formatMoney(d.custo)} · Lucro ${formatMoney(d.lucro)}</p>
+      <p class="muted">Entrada ${formatMoney(d.entrada)}${showFinance ? ` · Custo ${formatMoney(d.custo)} · Lucro ${formatMoney(d.lucro)}` : ""}</p>
       <h4 style="color:#0050ff">Acessos</h4>${htmlAcessos}
       <h4 style="color:#0050ff">Vendas</h4>${htmlVendas}
     `);
-    $("#relatorio").querySelectorAll("[data-acc]").forEach((b) => b.onclick = async () => {
-      if (await confirmModal("Deseja apagar este acesso?")) { store.removeById("acessos", b.dataset.acc); modal.classList.remove("show"); refresh(); }
-    });
-    $("#relatorio").querySelectorAll("[data-ven]").forEach((b) => b.onclick = async () => {
-      if (await confirmModal("Deseja apagar esta venda?")) { store.removeById("vendas", b.dataset.ven); modal.classList.remove("show"); refresh(); }
-    });
+    await bindReportActions();
   };
 
-  $("#btnRelatorioMensal").onclick = () => {
+  if ($("#btnRelatorioMensal")) $("#btnRelatorioMensal").onclick = async () => {
     const m = monthStats(data, ano, mes);
     const busca = `<input id="pesquisaClienteMensal" placeholder="Pesquisar cliente" />`;
     const htmlAcessos = m.acessos.map((a, i) => `
@@ -497,7 +556,7 @@ export function renderDashboard(root) {
           <div class="muted">${new Date(a.ts).toLocaleString("pt-BR")}</div>
           <div>${formatMoney(a.valor)}</div>
         </div>
-        <button class="btn-apagar" data-acc="${a.id}">Apagar</button>
+        ${accessAction(a)}
       </div>`).join("") || `<p class="muted">Nenhum acesso neste mes.</p>`;
     const htmlVendas = m.vendas.map((v, i) => `
       <div class="relatorio-item" data-cliente="${escapeHtml(v.cliente)}">
@@ -507,7 +566,7 @@ export function renderDashboard(root) {
           <div class="muted">${new Date(v.ts).toLocaleString("pt-BR")}</div>
           <div><strong>${formatMoney(v.valor)}</strong></div>
         </div>
-        <button class="btn-apagar" data-ven="${v.id}">Apagar</button>
+        ${saleActions(v)}
       </div>`).join("") || `<p class="muted">Nenhuma venda neste mes.</p>`;
     openModal(`
       <h3>RELATORIO MENSAL · ${MESES[mes]}/${ano}</h3>
@@ -529,15 +588,10 @@ export function renderDashboard(root) {
         });
       };
     }
-    $("#relatorio").querySelectorAll("[data-acc]").forEach((b) => b.onclick = async () => {
-      if (await confirmModal("Deseja apagar este acesso?")) { store.removeById("acessos", b.dataset.acc); modal.classList.remove("show"); refresh(); }
-    });
-    $("#relatorio").querySelectorAll("[data-ven]").forEach((b) => b.onclick = async () => {
-      if (await confirmModal("Deseja apagar esta venda?")) { store.removeById("vendas", b.dataset.ven); modal.classList.remove("show"); refresh(); }
-    });
+    await bindReportActions();
   };
 
-  $("#btnRelatorioAnual").onclick = () => {
+  if ($("#btnRelatorioAnual")) $("#btnRelatorioAnual").onclick = () => {
     const rows = annualReport(data, ano);
     const fat = rows.reduce((s, r) => s + r.faturamento, 0);
     const luc = rows.reduce((s, r) => s + r.lucro, 0);
@@ -553,7 +607,7 @@ export function renderDashboard(root) {
     `);
   };
 
-  $("#btnRelatorioRecrutamento").onclick = () => {
+  if ($("#btnRelatorioRecrutamento")) $("#btnRelatorioRecrutamento").onclick = () => {
     const months = yearRecrutamento(data, ano);
     const totD = months.reduce((s, r) => s + r.dist, 0);
     const totS = months.reduce((s, r) => s + r.sup, 0);
@@ -568,7 +622,7 @@ export function renderDashboard(root) {
       ${months.map((r) => r.list.length ? `
         <h4>${r.nome}</h4>
         ${r.list.map((x)=>`<div class="relatorio-item"><div>• ${escapeHtml(x.nome)} · ${x.tipo==="D"?"Distribuidor":"Supervisor"} · ${new Date(x.ts).toLocaleString("pt-BR")}</div>
-        <button class="btn-apagar" data-rec="${x.id}">Apagar</button></div>`).join("")}
+        ${can("customers.delete") ? `<button class="btn-apagar" data-rec="${x.id}">Apagar</button>` : ""}</div>`).join("")}
       ` : "").join("")}
     `);
     $("#relatorio").querySelectorAll("[data-rec]").forEach((b) => b.onclick = async () => {

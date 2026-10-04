@@ -1,5 +1,6 @@
 import { uid } from "./utils.js";
 import { api, setToken, getToken, getAdminToken, setAdminToken } from "./api.js";
+import { resolvePermissions, can as canPerm } from "../shared/permissions.js";
 
 /* Estrutura mantida compativel com as telas existentes.
    Persistencia agora e online (Express + SQLite). */
@@ -11,6 +12,7 @@ const state = {
   adminClients: [],
   adminStats: null,
   adminLicenses: [],
+  actor: null,
 };
 
 let syncTimer = null;
@@ -63,10 +65,40 @@ function scheduleSync() {
   }, 500);
 }
 
+function assertCan(key) {
+  if (store.isOwner()) return;
+  if (!canPerm(state.actor?.permissions, key)) {
+    throw new Error("Operacao nao autorizada.");
+  }
+}
+
 function mutate(fn) {
   if (!state.data) return;
   fn(state.data);
   scheduleSync();
+}
+
+function actorStamp() {
+  const a = state.actor;
+  if (!a) return {};
+  return { createdBy: a.id, createdByName: a.nome, createdAt: Date.now(), status: "ativo" };
+}
+
+function applyActor(payload) {
+  if (payload?.actor) {
+    state.actor = payload.actor;
+    return;
+  }
+  if (state.session) {
+    state.actor = {
+      id: state.session.id,
+      nome: state.session.nome,
+      email: state.session.email,
+      type: state.session.role === "admin" ? "admin" : "owner",
+      perfil: "proprietario",
+      permissions: resolvePermissions("proprietario"),
+    };
+  }
 }
 
 export const store = {
@@ -75,6 +107,7 @@ export const store = {
     try {
       const [me, planos] = await Promise.all([api.get("/me"), api.get("/plans")]);
       state.session = me.user;
+      applyActor(me);
       state.planos = planos.planos || [];
       await loadUserData();
       return true;
@@ -83,6 +116,7 @@ export const store = {
       setAdminToken(null);
       state.session = null;
       state.data = null;
+      state.actor = null;
       return false;
     }
   },
@@ -96,8 +130,22 @@ export const store = {
   planos() {
     return state.planos;
   },
+  actor() {
+    return state.actor;
+  },
   isAdmin() {
-    return state.session?.role === "admin";
+    return state.session?.role === "admin" && state.actor?.type !== "colaborador";
+  },
+  isOwner() {
+    return state.actor?.type === "owner" || state.actor?.type === "admin";
+  },
+  isColaborador() {
+    return state.actor?.type === "colaborador";
+  },
+  can(key) {
+    if (!key) return true;
+    if (store.isOwner()) return true;
+    return canPerm(state.actor?.permissions, key);
   },
   isImpersonating() {
     return !!getAdminToken();
@@ -108,6 +156,7 @@ export const store = {
     setToken(r.token);
     setAdminToken(null);
     state.session = r.user;
+    applyActor(r);
     await Promise.all([loadPlanos(), loadUserData()]);
     return r.user;
   },
@@ -117,6 +166,7 @@ export const store = {
     setToken(r.token);
     setAdminToken(null);
     state.session = r.user;
+    applyActor(r);
     await Promise.all([loadPlanos(), loadUserData()]);
     if (!state.session.role || state.session.role !== "admin") {
       const d = state.data;
@@ -135,6 +185,7 @@ export const store = {
     setAdminToken(null);
     state.session = r.user;
     state.colabSession = r.colaborador;
+    applyActor(r);
     await Promise.all([loadPlanos(), loadUserData()]);
     return r;
   },
@@ -145,11 +196,13 @@ export const store = {
   },
 
   logout() {
+    try { api.post("/auth/logout", {}); } catch { /* ignore */ }
     setToken(null);
     setAdminToken(null);
     state.session = null;
     state.data = null;
     state.colabSession = null;
+    state.actor = null;
   },
 
   async changePassword(senhaAtual, senhaNova) {
@@ -191,6 +244,7 @@ export const store = {
     const r = await api.post(`/admin/impersonate/${id}`, {}, { useAdmin: true });
     setToken(r.token);
     state.session = r.user;
+    applyActor(r);
     await Promise.all([loadPlanos(), loadUserData()]);
     return r.user;
   },
@@ -255,7 +309,8 @@ export const store = {
   /* ===================== MUTACOES DOS DADOS ===================== */
 
   addAcesso({ cliente, valor, dia, mes, ano }) {
-    const item = { id: uid(), tipo: "acesso", cliente, valor: Number(valor), dia: Number(dia), mes, ano: Number(ano), ts: Date.now() };
+    assertCan("access.create");
+    const item = { id: uid(), tipo: "acesso", cliente, valor: Number(valor), dia: Number(dia), mes, ano: Number(ano), ts: Date.now(), ...actorStamp() };
     mutate((d) => {
       d.acessos.push(item);
       d.lastAcesso = { nome: cliente, valor: Number(valor), dia, mes, ano };
@@ -264,10 +319,12 @@ export const store = {
   },
 
   addVenda({ cliente, valor, itens, dia, mes, ano }) {
+    assertCan("sales.create");
     const custo = itens.reduce((s, i) => s + Number(i.custo) * Number(i.quantidade), 0);
     const item = {
       id: uid(), tipo: "venda", cliente, valor: Number(valor), custo,
       lucro: Number(valor) - custo, itens, dia: Number(dia), mes, ano: Number(ano), ts: Date.now(),
+      ...actorStamp(),
     };
     mutate((d) => {
       d.vendas.push(item);
@@ -277,13 +334,45 @@ export const store = {
   },
 
   addRecrutamento({ nome, tipo, dia, mes, ano }) {
-    const item = { id: uid(), nome, tipo, dia: Number(dia), mes, ano: Number(ano), ts: Date.now() };
+    assertCan("customers.create");
+    const item = { id: uid(), nome, tipo, dia: Number(dia), mes, ano: Number(ano), ts: Date.now(), ...actorStamp() };
     mutate((d) => d.recrutamento.push(item));
     return item;
   },
 
-  removeById(collection, id) {
-    mutate((d) => { d[collection] = d[collection].filter((x) => x.id !== id); });
+  removeById(collection, id, { status = "cancelada", motivo = "" } = {}) {
+    if (collection === "vendas") assertCan(status === "estornada" ? "sales.refund" : "sales.cancel");
+    else if (collection === "acessos") assertCan("access.delete");
+    else if (collection === "historicoInventario") assertCan("inventory.edit");
+    else if (collection === "cartelaMovs") assertCan("cards.cancel");
+    else if (collection === "enviosCusto") assertCan("cash.reopen");
+    else if (collection === "recrutamento") assertCan("customers.delete");
+    mutate((d) => {
+      const list = d[collection] || [];
+      if (collection === "vendas" || collection === "acessos" || collection === "historicoInventario" || collection === "cartelaMovs" || collection === "enviosCusto") {
+        d[collection] = list.map((x) => {
+          if (x.id !== id) return x;
+          const a = state.actor;
+          return {
+            ...x,
+            status,
+            motivo: motivo || x.motivo,
+            deletedBy: a?.id,
+            deletedByName: a?.nome,
+            deletedAt: Date.now(),
+            updatedBy: a?.id,
+            updatedByName: a?.nome,
+            updatedAt: Date.now(),
+          };
+        });
+        return;
+      }
+      d[collection] = list.filter((x) => x.id !== id);
+    });
+  },
+
+  refundVenda(id, motivo = "") {
+    store.removeById("vendas", id, { status: "estornada", motivo });
   },
 
   setMetas(ano, mes, metas) {
@@ -295,30 +384,36 @@ export const store = {
   },
 
   setPerfil(patch) {
+    assertCan("settings.edit");
     mutate((d) => Object.assign(d.perfil, patch));
   },
 
   addPesquisa(p) {
-    const item = { id: uid(), ts: Date.now(), ...p };
+    assertCan("customers.create");
+    const item = { id: uid(), ts: Date.now(), ...actorStamp(), ...p };
     mutate((d) => d.pesquisas.unshift(item));
     return item;
   },
 
   addEnvioCusto({ dia, mes, ano, valor }) {
-    const item = { id: uid(), dia: Number(dia), mes, ano: Number(ano), valor: Number(valor), ts: Date.now() };
+    assertCan("cash.close");
+    const item = { id: uid(), dia: Number(dia), mes, ano: Number(ano), valor: Number(valor), ts: Date.now(), ...actorStamp() };
     mutate((d) => d.enviosCusto.push(item));
     return item;
   },
 
   setInventario(rows) {
+    assertCan("inventory.adjust");
     mutate((d) => { d.inventario = rows; });
   },
 
   addHistoricoInventario(snap) {
-    mutate((d) => d.historicoInventario.unshift({ id: uid(), ts: Date.now(), ...snap }));
+    assertCan("inventory.purchase");
+    mutate((d) => d.historicoInventario.unshift({ id: uid(), ts: Date.now(), ...actorStamp(), ...snap }));
   },
 
   updateHistoricoInventario(id, patch) {
+    assertCan("inventory.edit");
     mutate((d) => {
       const item = (d.historicoInventario || []).find((x) => x.id === id);
       if (item) Object.assign(item, patch);
@@ -326,6 +421,7 @@ export const store = {
   },
 
   addCartela({ cliente, quantidade }) {
+    assertCan("cards.create");
     mutate((d) => {
       d.cartelas = d.cartelas || [];
       d.cartelaMovs = d.cartelaMovs || [];
@@ -334,31 +430,37 @@ export const store = {
       if (existing) existing.saldo += qtd;
       else d.cartelas.push({ id: uid(), cliente, saldo: qtd });
       const saldo = (existing ? existing.saldo : qtd);
-      d.cartelaMovs.push({ id: uid(), cliente, tipo: "compra", qtd, saldo, ts: Date.now() });
+      d.cartelaMovs.push({ id: uid(), cliente, tipo: "compra", qtd, saldo, ts: Date.now(), ...actorStamp() });
     });
   },
 
   useCartela(cliente) {
+    assertCan("cards.use");
     mutate((d) => {
       d.cartelas = d.cartelas || [];
       d.cartelaMovs = d.cartelaMovs || [];
       const existing = d.cartelas.find((c) => c.cliente.toLowerCase() === cliente.toLowerCase());
       if (!existing) return;
       existing.saldo -= 1;
-      d.cartelaMovs.push({ id: uid(), cliente, tipo: "uso", qtd: 1, saldo: existing.saldo, ts: Date.now() });
+      d.cartelaMovs.push({ id: uid(), cliente, tipo: "uso", qtd: 1, saldo: existing.saldo, ts: Date.now(), ...actorStamp() });
     });
   },
 
   removeCartelaMov(id) {
+    assertCan("cards.cancel");
     mutate((d) => {
       d.cartelas = d.cartelas || [];
       d.cartelaMovs = d.cartelaMovs || [];
       const mov = d.cartelaMovs.find((x) => x.id === id);
       if (!mov) return;
+      const a = state.actor;
+      mov.status = "cancelada";
+      mov.deletedBy = a?.id;
+      mov.deletedByName = a?.nome;
+      mov.deletedAt = Date.now();
       const nome = mov.cliente;
-      d.cartelaMovs = d.cartelaMovs.filter((x) => x.id !== id);
       const movs = d.cartelaMovs
-        .filter((m) => m.cliente.toLowerCase() === nome.toLowerCase())
+        .filter((m) => m.cliente.toLowerCase() === nome.toLowerCase() && (!m.status || m.status === "ativo"))
         .sort((a, b) => a.ts - b.ts);
       let saldo = 0;
       movs.forEach((m) => {
@@ -385,6 +487,7 @@ export const store = {
   },
 
   setFechamentoFlag(ano, mes, dia, plus) {
+    assertCan("cash.close");
     mutate((d) => {
       d.fechamentoFlags = d.fechamentoFlags || {};
       d.fechamentoFlags[`${ano}-${mes}-${dia}`] = !!plus;
@@ -397,18 +500,40 @@ export const store = {
     return flags[k] !== undefined ? flags[k] : true;
   },
 
-  async addColaborador({ nome, email, senha }) {
-    const r = await api.post("/colaboradores", { nome, email, senha });
-    if (state.data) state.data.colaboradores.push(r.colaborador);
+  async addColaborador({ nome, email, senha, perfil, permissions }) {
+    const r = await api.post("/colaboradores", { nome, email, senha, perfil, permissions });
+    if (state.data) {
+      state.data.colaboradores = state.data.colaboradores || [];
+      state.data.colaboradores.push(r.colaborador);
+    }
+    return r.colaborador;
+  },
+
+  async updateColaborador(id, patch) {
+    const r = await api.patch(`/colaboradores/${id}`, patch);
+    if (state.data) {
+      state.data.colaboradores = (state.data.colaboradores || []).map((c) => (c.id === id ? r.colaborador : c));
+    }
     return r.colaborador;
   },
 
   async removeColaborador(id) {
-    await api.del(`/colaboradores/${id}`);
-    if (state.data) state.data.colaboradores = state.data.colaboradores.filter((c) => c.id !== id);
+    const r = await api.del(`/colaboradores/${id}`);
+    if (state.data) {
+      state.data.colaboradores = (state.data.colaboradores || []).map((c) => (c.id === id ? r.colaborador : c));
+    }
+  },
+
+  async loadAudit(params = {}) {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, v); });
+    const path = `/audit${q.toString() ? `?${q}` : ""}`;
+    const r = await api.get(path);
+    return r.logs || [];
   },
 
   setGanhoManual(ano, mes, field, value) {
+    assertCan("reports.financial");
     mutate((d) => {
       const key = `${ano}-${mes}`;
       d.ganhosManuais[key] = d.ganhosManuais[key] || { royalties: 0, bonus: 0, pv: 0 };
@@ -417,10 +542,12 @@ export const store = {
   },
 
   setContas(contas) {
+    assertCan("finance.edit");
     mutate((d) => { d.contas = contas; });
   },
 
   resetContas() {
+    assertCan("finance.edit");
     mutate((d) => {
       d.contas = [
         { id: "clf", sigla: "CLF", nome: "Liberdade Financeira", pct: 10 },
@@ -434,10 +561,12 @@ export const store = {
   },
 
   setEntradasGestao(patch) {
+    assertCan("finance.edit");
     mutate((d) => Object.assign(d.entradasGestao, patch));
   },
 
   setPrecificador(rows) {
+    assertCan("pricing.edit");
     mutate((d) => { d.precificador = rows; });
   },
 };

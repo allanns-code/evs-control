@@ -119,6 +119,34 @@ export function toast(message, type = "ok") {
   }, 2200);
 }
 
+export function confirmSensitive({ title = "Acao sensivel", message, details = "", confirmLabel = "Confirmar" }) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement("div");
+    wrap.className = "modal show";
+    wrap.innerHTML = `
+      <div class="modal-content" style="max-width:360px">
+        <h3 style="margin:0 0 8px;color:#b00020">${escapeHtml(title)}</h3>
+        <p style="margin:8px 0 10px;font-size:15px">${escapeHtml(message)}</p>
+        ${details ? `<div class="muted" style="text-align:left;margin-bottom:16px;white-space:pre-line">${escapeHtml(details)}</div>` : ""}
+        <div style="display:flex;gap:8px">
+          <button class="btn-ghost" data-no>Cancelar</button>
+          <button data-yes>${escapeHtml(confirmLabel)}</button>
+        </div>
+      </div>`;
+    wrap.addEventListener("click", (e) => {
+      if (e.target === wrap || e.target.dataset.no !== undefined) {
+        wrap.remove();
+        resolve(false);
+      }
+      if (e.target.dataset.yes !== undefined) {
+        wrap.remove();
+        resolve(true);
+      }
+    });
+    document.body.appendChild(wrap);
+  });
+}
+
 export function confirmModal(message) {
   return new Promise((resolve) => {
     const wrap = document.createElement("div");

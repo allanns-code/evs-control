@@ -1,7 +1,13 @@
 import { MESES, averageDaily, projectMonth } from "./utils.js";
 
+export function isActiveRecord(x) {
+  const st = x?.status;
+  return !st || st === "ativo";
+}
+
 export function filterPeriod(list, ano, mes, dia = null) {
   return (list || []).filter((x) => {
+    if (!isActiveRecord(x)) return false;
     const sameYear = Number(x.ano) === Number(ano);
     const sameMonth = Number(x.mes) === Number(mes) || x.mes === MESES[mes];
     const sameDay = dia == null || Number(x.dia) === Number(dia);

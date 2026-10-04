@@ -2,13 +2,15 @@ import { store } from "../store.js";
 import { navigate } from "../router.js";
 import {
   MESES, ESTADOS, DESCONTOS, formatMoney, parseMoney, todayParts,
-  toast, confirmModal, escapeHtml, uid,
+  toast, confirmSensitive, escapeHtml, uid,
 } from "../utils.js";
+import { PERMISSION_GROUPS, PROFILE_DEFAULTS, resolvePermissions } from "../../shared/permissions.js";
 import { monthStats, dayStats, yearStats } from "../compute.js";
 import { PRODUTOS, custoComDesconto, produtoPorId, produtoPorNome } from "../catalog.js";
 
-function guard() {
+function guard(perm) {
   if (!store.currentUser()) { navigate("/login"); return false; }
+  if (perm && !store.can(perm)) { navigate("/"); return false; }
   return true;
 }
 
@@ -25,7 +27,7 @@ function pageShell(title, sub, body, extra = "", cls = "") {
 }
 
 export function renderPesquisa(root) {
-  if (!guard()) return;
+  if (!guard("customers.view")) return;
   root.innerHTML = pageShell("Pesquisa do Bem Estar", "Espaco Vida Saudavel", `
     <div class="card">
       <form id="formPesq">
@@ -83,6 +85,7 @@ export function renderPesquisa(root) {
 
   root.querySelector("#formPesq").onsubmit = (e) => {
     e.preventDefault();
+    if (!store.can("customers.create")) { toast("Operacao nao autorizada.", "err"); return; }
     const fd = new FormData(e.target);
     store.addPesquisa({
       nome: fd.get("nome"),
@@ -130,7 +133,7 @@ export function renderPesquisa(root) {
 }
 
 export function renderPrecos(root) {
-  if (!guard()) return;
+  if (!guard("pricing.view")) return;
   const perfil = store.data().perfil;
   root.innerHTML = pageShell("Tabela de Precos", "Consulte PV, cliente e distribuidor", `
     <div class="card">
@@ -161,6 +164,10 @@ export function renderPrecos(root) {
       </tr>`).join("");
   }
   root.querySelector("#busca").oninput = draw;
+  if (!store.can("settings.edit")) {
+    root.querySelector("#desc").disabled = true;
+    root.querySelector("#est").disabled = true;
+  }
   root.querySelector("#desc").onchange = (e) => { store.setPerfil({ desconto: Number(e.target.value) }); draw(); };
   root.querySelector("#est").onchange = (e) => { store.setPerfil({ estado: e.target.value }); draw(); };
   root.querySelector("#btnShare").onclick = async () => {
@@ -172,7 +179,7 @@ export function renderPrecos(root) {
 }
 
 export function renderFechamento(root) {
-  if (!guard()) return;
+  if (!guard("cash.view")) return;
   const t = todayParts();
   let ano = t.ano, mes = t.mes, dia = t.dia;
   const lixoSvg = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#9aa0a6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
@@ -261,8 +268,8 @@ export function renderFechamento(root) {
     const plus = store.getFechamentoFlag(ano, mes, dia);
     root.querySelector("#mais10").checked = plus;
     const custoDia = custoAjustadoDia(d, plus);
-    const enviosDia = (data.enviosCusto || []).filter((e) => Number(e.ano)===ano && Number(e.mes)===mes && Number(e.dia)===dia);
-    const enviosMes = (data.enviosCusto || []).filter((e) => Number(e.ano)===ano && Number(e.mes)===mes);
+    const enviosDia = (data.enviosCusto || []).filter((e) => Number(e.ano)===ano && Number(e.mes)===mes && Number(e.dia)===dia && (!e.status || e.status === "ativo"));
+    const enviosMes = (data.enviosCusto || []).filter((e) => Number(e.ano)===ano && Number(e.mes)===mes && (!e.status || e.status === "ativo"));
     const totDia = enviosDia.reduce((s,e)=>s+Number(e.valor),0);
     const totMes = enviosMes.reduce((s,e)=>s+Number(e.valor),0);
     const diasMes = new Date(ano, mes+1, 0).getDate();
@@ -276,7 +283,7 @@ export function renderFechamento(root) {
       custoMesBase += ds.custo;
       custoMesAjustado += ca;
       if (ca <= 0) continue;
-      const env = (data.enviosCusto||[]).filter((e)=>Number(e.dia)===i && Number(e.mes)===mes && Number(e.ano)===ano).reduce((s,e)=>s+Number(e.valor),0);
+      const env = (data.enviosCusto||[]).filter((e)=>Number(e.dia)===i && Number(e.mes)===mes && Number(e.ano)===ano && (!e.status || e.status === "ativo")).reduce((s,e)=>s+Number(e.valor),0);
       const falta = ca - env;
       if (falta > 0.009) {
         pend.push({ i, fl, falta });
@@ -293,7 +300,7 @@ export function renderFechamento(root) {
     root.querySelector("#listaEnvios").innerHTML = enviosDia.length
       ? enviosDia.map((e)=>`<div class="envio-item">
           <strong>${formatMoney(e.valor)}</strong>
-          <button type="button" class="btn-lixo" data-envio="${e.id}" aria-label="Excluir envio">${lixoSvg}</button>
+          ${store.can("cash.reopen") ? `<button type="button" class="btn-lixo" data-envio="${e.id}" aria-label="Excluir envio">${lixoSvg}</button>` : ""}
         </div>`).join("")
       : `<p class="muted">Nenhum envio neste dia.</p>`;
     root.querySelector("#pendentes").innerHTML = pend.length
@@ -304,7 +311,13 @@ export function renderFechamento(root) {
       : `<p class="muted">Nenhum dia pendente.</p>`;
     root.querySelectorAll("[data-envio]").forEach((b) => {
       b.onclick = async () => {
-        if (await confirmModal("Deseja excluir este envio?")) {
+        if (!store.can("cash.reopen")) { toast("Operacao nao autorizada.", "err"); return; }
+        const ok = await confirmSensitive({
+          title: "Acao sensivel",
+          message: "Excluir este envio reabre o saldo do dia.",
+          confirmLabel: "Excluir envio",
+        });
+        if (ok) {
           store.removeById("enviosCusto", b.dataset.envio);
           toast("Envio excluido");
           refresh();
@@ -315,11 +328,25 @@ export function renderFechamento(root) {
   root.querySelector("#ano").onchange = (e) => { ano = Number(e.target.value); fillDays(); refresh(); };
   root.querySelector("#mes").onchange = (e) => { mes = Number(e.target.value); fillDays(); refresh(); };
   root.querySelector("#dia").onchange = (e) => { dia = Number(e.target.value); refresh(); };
-  root.querySelector("#mais10").onchange = () => {
-    store.setFechamentoFlag(ano, mes, dia, root.querySelector("#mais10").checked);
+  if (!store.can("cash.close")) {
+    root.querySelector("#mais10").disabled = true;
+    root.querySelector("#btnEnvio").disabled = true;
+  }
+  root.querySelector("#mais10").onchange = async () => {
+    if (!store.can("cash.close")) { toast("Operacao nao autorizada.", "err"); return; }
+    const plus = root.querySelector("#mais10").checked;
+    const ok = await confirmSensitive({
+      title: "Acao sensivel",
+      message: plus ? "Aplicar +10% do lucro ao custo deste dia?" : "Alterar o fechamento deste dia?",
+      details: `Dia ${dia}/${mes + 1}/${ano}`,
+      confirmLabel: "Confirmar",
+    });
+    if (!ok) { root.querySelector("#mais10").checked = store.getFechamentoFlag(ano, mes, dia); return; }
+    store.setFechamentoFlag(ano, mes, dia, plus);
     refresh();
   };
   root.querySelector("#btnEnvio").onclick = () => {
+    if (!store.can("cash.close")) { toast("Operacao nao autorizada.", "err"); return; }
     const valor = Number(root.querySelector("#valorEnvio").value);
     if (!valor || valor <= 0) { toast("Informe o valor", "err"); return; }
     store.addEnvioCusto({ dia, mes, ano, valor });
@@ -331,7 +358,7 @@ export function renderFechamento(root) {
 }
 
 export function renderResumo(root) {
-  if (!guard()) return;
+  if (!guard("reports.financial")) return;
   const t = todayParts();
   let ano = t.ano;
   root.innerHTML = pageShell("Resumo de Ganhos", "Lucros, royalties, bonus e PV", `
@@ -373,6 +400,7 @@ export function renderResumo(root) {
         <td><strong>${formatMoney(r.total)}</strong></td>
       </tr>`).join("")}</tbody>`;
     root.querySelectorAll("input[data-f]").forEach((inp) => {
+      if (!store.can("reports.financial")) { inp.disabled = true; return; }
       inp.onchange = () => {
         store.setGanhoManual(ano, Number(inp.dataset.m), inp.dataset.f, inp.value);
         draw();
@@ -385,7 +413,7 @@ export function renderResumo(root) {
 }
 
 export function renderGestao(root) {
-  if (!guard()) return;
+  if (!guard("finance.view")) return;
   const data = store.data();
   root.innerHTML = pageShell("Gestao Financeira", "Distribua seus ganhos por contas", `
     <div class="card">
@@ -429,6 +457,7 @@ export function renderGestao(root) {
         <strong>${formatMoney(total * (Number(c.pct)||0) / 100)}</strong>
       </div>`).join("");
     root.querySelectorAll("#linhas input").forEach((inp) => {
+      if (!store.can("finance.edit")) { inp.disabled = true; return; }
       inp.onchange = () => {
         const contas2 = store.data().contas.map((c)=>({...c}));
         const k = inp.dataset.k;
@@ -439,6 +468,7 @@ export function renderGestao(root) {
     });
   }
   ["gVendas","gRoy","gBon","gOut"].forEach((id) => {
+    if (!store.can("finance.edit")) { root.querySelector("#"+id).disabled = true; return; }
     root.querySelector("#"+id).oninput = () => {
       store.setEntradasGestao({
         vendas: Number(root.querySelector("#gVendas").value)||0,
@@ -449,6 +479,10 @@ export function renderGestao(root) {
       draw();
     };
   });
+  if (!store.can("finance.edit")) {
+    root.querySelector("#addConta").style.display = "none";
+    root.querySelector("#reset").style.display = "none";
+  }
   root.querySelector("#addConta").onclick = () => {
     const contas = store.data().contas.concat([{ id: uid(), sigla: "NOVA", nome: "Nova conta", pct: 0 }]);
     store.setContas(contas);
@@ -459,7 +493,7 @@ export function renderGestao(root) {
 }
 
 export function renderPrecificador(root) {
-  if (!guard()) return;
+  if (!guard("pricing.view")) return;
   let rows = (store.data().precificador || []).map((r)=>({...r}));
   if (!rows.length) rows = [{ id: uid(), produto: "", custo: 0, pv: 0, porcoes: 1 }];
   root.innerHTML = pageShell("Precificador", "Produtos preparados (EVS porcoes)", `
@@ -504,6 +538,7 @@ export function renderPrecificador(root) {
       </div>`).join("");
     updateResumo();
     root.querySelectorAll("#lista input").forEach((inp) => {
+      if (!store.can("pricing.edit")) { inp.disabled = true; return; }
       inp.oninput = () => {
         const i = Number(inp.dataset.i);
         const k = inp.dataset.k;
@@ -514,16 +549,28 @@ export function renderPrecificador(root) {
         updateResumo();
       };
     });
-    root.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => { rows.splice(+b.dataset.del,1); draw(); });
+    root.querySelectorAll("[data-del]").forEach((b) => {
+      if (!store.can("pricing.edit")) { b.style.display = "none"; return; }
+      b.onclick = () => { rows.splice(+b.dataset.del,1); draw(); };
+    });
+  }
+  if (!store.can("pricing.edit")) {
+    root.querySelector("#add").style.display = "none";
+    root.querySelector("#limpar").style.display = "none";
+    root.querySelector("#salvar").style.display = "none";
   }
   root.querySelector("#add").onclick = () => { rows.push({ id: uid(), produto: "", custo: 0, pv: 0, porcoes: 1 }); draw(); };
   root.querySelector("#limpar").onclick = () => { rows = [{ id: uid(), produto: "", custo: 0, pv: 0, porcoes: 1 }]; draw(); };
-  root.querySelector("#salvar").onclick = () => { store.setPrecificador(rows); toast("Precificador salvo"); };
+  root.querySelector("#salvar").onclick = () => {
+    if (!store.can("pricing.edit")) { toast("Operacao nao autorizada.", "err"); return; }
+    store.setPrecificador(rows);
+    toast("Precificador salvo");
+  };
   draw();
 }
 
 export function renderInventario(root) {
-  if (!guard()) return;
+  if (!guard("inventory.view")) return;
   const data = store.data();
   const perfil = data.perfil;
   const saved = (data.inventario || []).map((r) => {
@@ -568,7 +615,7 @@ export function renderInventario(root) {
     return Number(estoque || 0) + Number(rec || 0) + Number(ped || 0) - Number(car || 0);
   }
   function histList() {
-    return store.data().historicoInventario || [];
+    return (store.data().historicoInventario || []).filter((h) => !h.status || h.status === "ativo");
   }
   root.innerHTML = pageShell("Inventario", "", `
     <div class="inv-config">
@@ -691,13 +738,14 @@ export function renderInventario(root) {
         <div class="inv-hist-item">
           <div>
             <div class="relatorio-nome">${new Date(h.ts).toLocaleString("pt-BR")}</div>
+            ${h.createdByName ? `<div class="muted">${escapeHtml(h.createdByName)}</div>` : ""}
             <div class="muted">Estoque ${formatMoney(h.estoque)} · PV ${pvFmt(h.pv)}</div>
             <div class="muted">Recompra ${formatMoney(h.recompra)} · Pedidos ${formatMoney(h.pedidos)} · Cartao ${formatMoney(h.cartao)}</div>
             <strong>Saldo ${formatMoney(h.saldo)}</strong>
           </div>
           <div class="acoes-relatorio">
-            <button type="button" data-edit="${h.id}" title="Editar">Editar</button>
-            <button type="button" class="btn-apagar" data-delh="${h.id}" title="Apagar">Apagar</button>
+            ${store.can("inventory.edit") ? `<button type="button" data-edit="${h.id}" title="Editar">Editar</button>` : ""}
+            ${store.can("inventory.edit") ? `<button type="button" class="btn-apagar" data-delh="${h.id}" title="Apagar">Apagar</button>` : ""}
           </div>
         </div>`).join("")
       : `<p class="muted">Nenhum inventario registrado.</p>`;
@@ -707,7 +755,8 @@ export function renderInventario(root) {
     });
     root.querySelectorAll("[data-delh]").forEach((b) => {
       b.onclick = async () => {
-        if (await confirmModal("Tem certeza que deseja apagar este inventario?")) {
+        if (!store.can("inventory.edit")) { toast("Operacao nao autorizada.", "err"); return; }
+        if (await confirmSensitive({ title: "Acao sensivel", message: "Apagar este inventario?", confirmLabel: "Apagar" })) {
           store.removeById("historicoInventario", b.dataset.delh);
           toast("Inventario apagado");
           drawHist();
@@ -719,6 +768,10 @@ export function renderInventario(root) {
     inp.addEventListener("focus", function () {
       if (this.value === "0") setTimeout(() => this.select(), 0);
     });
+    if (!store.can("inventory.adjust")) {
+      inp.disabled = true;
+      return;
+    }
     inp.onchange = () => {
       const i = Number(inp.dataset.i);
       const k = inp.dataset.k;
@@ -776,7 +829,10 @@ export function renderInventario(root) {
     modalEdit.classList.add("show");
   }
   root.querySelector("#buscaInv").oninput = (e) => { busca = e.target.value; drawTable(); };
+  if (!store.can("inventory.purchase")) root.querySelector("#reg").style.display = "none";
+  if (!store.can("inventory.adjust")) root.querySelector("#zerar").style.display = "none";
   root.querySelector("#reg").onclick = () => {
+    if (!store.can("inventory.purchase")) { toast("Operacao nao autorizada.", "err"); return; }
     const { totR, totP } = totals();
     root.querySelector("#mEstoque").textContent = formatMoney(totR);
     root.querySelector("#mPv").textContent = pvFmt(totP);
@@ -791,7 +847,8 @@ export function renderInventario(root) {
   ["#mRec", "#mPed", "#mCar"].forEach((sel) => {
     root.querySelector(sel).oninput = syncModalSaldo;
   });
-  root.querySelector("#mOk").onclick = () => {
+  root.querySelector("#mOk").onclick = async () => {
+    if (!store.can("inventory.purchase")) { toast("Operacao nao autorizada.", "err"); return; }
     const { totR, totP } = totals();
     const rec = parseMoney(root.querySelector("#mRec").value);
     const ped = parseMoney(root.querySelector("#mPed").value);
@@ -809,8 +866,15 @@ export function renderInventario(root) {
   ["#eRec", "#ePed", "#eCar"].forEach((sel) => {
     root.querySelector(sel).oninput = syncEditSaldo;
   });
-  root.querySelector("#eOk").onclick = () => {
+  root.querySelector("#eOk").onclick = async () => {
     if (!editId) return;
+    if (!store.can("inventory.edit")) { toast("Operacao nao autorizada.", "err"); return; }
+    const ok = await confirmSensitive({
+      title: "Acao sensivel",
+      message: "Alterar este inventario?",
+      confirmLabel: "Salvar",
+    });
+    if (!ok) return;
     const est = parseMoney(root.querySelector("#eEstoque").value);
     const pv = parseMoney(root.querySelector("#ePv").value);
     const rec = parseMoney(root.querySelector("#eRec").value);
@@ -824,7 +888,8 @@ export function renderInventario(root) {
     drawHist();
   };
   root.querySelector("#zerar").onclick = async () => {
-    if (!await confirmModal("Zerar todas as quantidades?")) return;
+    if (!store.can("inventory.adjust")) { toast("Operacao nao autorizada.", "err"); return; }
+    if (!await confirmSensitive({ title: "Acao sensivel", message: "Zerar todas as quantidades?", confirmLabel: "Zerar" })) return;
     rows = rows.map((r) => ({ ...r, fechado: 0, aberto: 0 }));
     store.setInventario(rows);
     drawTable();
@@ -833,45 +898,193 @@ export function renderInventario(root) {
   drawHist();
 }
 
+function perfilLabel(p) {
+  if (p === "gerente") return "Gerente";
+  if (p === "proprietario") return "Proprietario";
+  return "Atendente";
+}
+function statusLabel(s) {
+  if (s === "bloqueado") return "Bloqueado";
+  if (s === "inativo") return "Inativo";
+  return "Ativo";
+}
+function statusClass(s) {
+  if (s === "bloqueado") return "badge-red";
+  if (s === "inativo") return "badge-gray";
+  return "badge-green";
+}
+function permMatrixHtml(perfil, overrides, prefix = "perm") {
+  const resolved = resolvePermissions(perfil, overrides);
+  return PERMISSION_GROUPS.map((g) => `
+    <div class="perm-group">
+      <div class="perm-mod">${escapeHtml(g.module)}</div>
+      ${g.items.map((it) => `
+        <label class="perm-item">
+          <input type="checkbox" data-perm="${it.key}" ${resolved[it.key] ? "checked" : ""} />
+          ${escapeHtml(it.label)}
+        </label>`).join("")}
+    </div>`).join("");
+}
+function collectPerms(scope, perfil) {
+  const base = PROFILE_DEFAULTS[perfil] || PROFILE_DEFAULTS.atendente;
+  const overrides = {};
+  scope.querySelectorAll("[data-perm]").forEach((inp) => {
+    const k = inp.dataset.perm;
+    if (!!inp.checked !== !!base[k]) overrides[k] = inp.checked;
+  });
+  return overrides;
+}
+
 export function renderColaboradores(root) {
-  if (!guard()) return;
-  root.innerHTML = pageShell("Gestao de colaboradores", store.currentUser().nome, `
-    <div class="card">
+  if (!guard("team.view")) return;
+  const canCreate = store.can("team.create");
+  const canEdit = store.can("team.edit");
+  const canPerms = store.can("team.permissions");
+  const canDelete = store.can("team.delete");
+  root.innerHTML = pageShell("Gestao de colaboradores", "Perfis, permissoes e status da equipe", `
+    ${canCreate ? `<div class="card">
       <h3>Criar colaborador</h3>
       <form id="form">
         <input name="nome" placeholder="Nome do colaborador" required />
         <input name="email" type="email" placeholder="E-mail" required />
         <input name="senha" type="password" placeholder="Senha" required />
+        <label class="field">Perfil</label>
+        <select name="perfil">
+          <option value="atendente">Atendente</option>
+          <option value="gerente">Gerente</option>
+        </select>
         <button>Criar Colaborador</button>
       </form>
-    </div>
+    </div>` : ""}
     <div class="card">
       <h3>Meus colaboradores</h3>
       <button type="button" id="upd" class="btn-ghost">Atualizar lista</button>
       <div id="lista"></div>
     </div>
+    <div class="modal" id="modalColab">
+      <div class="modal-content" style="max-width:96%">
+        <div class="close" id="closeColab">X</div>
+        <h3 id="colabTitle">Permissoes</h3>
+        <form id="formEdit">
+          <input name="nome" placeholder="Nome" required />
+          <input name="email" type="email" placeholder="E-mail" required />
+          <input name="senha" type="password" placeholder="Nova senha (opcional)" />
+          <label class="field">Perfil</label>
+          <select name="perfil" id="editPerfil">
+            <option value="atendente">Atendente</option>
+            <option value="gerente">Gerente</option>
+          </select>
+          <label class="field">Status</label>
+          <select name="status">
+            <option value="ativo">Ativo</option>
+            <option value="inativo">Inativo</option>
+            <option value="bloqueado">Bloqueado</option>
+          </select>
+          <div id="permBox" class="perm-box"></div>
+          <button type="submit">Salvar</button>
+        </form>
+      </div>
+    </div>
   `);
+  const modal = root.querySelector("#modalColab");
+  let editing = null;
   function draw() {
     const list = store.data().colaboradores || [];
-    root.querySelector("#lista").innerHTML = list.map((c)=>`
-      <div class="relatorio-item">
-        <div><strong>${escapeHtml(c.nome)}</strong><br>${escapeHtml(c.email)}</div>
-        <button class="btn-apagar" data-id="${c.id}">Apagar</button>
+    root.querySelector("#lista").innerHTML = list.map((c) => `
+      <div class="cli-row">
+        <div class="cli-info">
+          <div><strong>${escapeHtml(c.nome)}</strong> <span class="badge ${statusClass(c.status)}">${statusLabel(c.status)}</span></div>
+          <div class="muted">${escapeHtml(c.email)}</div>
+          <div class="muted">${perfilLabel(c.perfil)} · criado ${c.createdAt ? new Date(c.createdAt).toLocaleDateString("pt-BR") : "-"}</div>
+          <div class="muted">Ultimo acesso: ${c.lastLogin ? new Date(c.lastLogin).toLocaleString("pt-BR") : "nunca"}</div>
+        </div>
+        <div class="cli-actions">
+          ${canEdit || canPerms ? `<button class="btn-soft" data-edit="${c.id}">Permissoes</button>` : ""}
+          ${canDelete && c.status !== "inativo" ? `<button class="btn-apagar" data-id="${c.id}">Desativar</button>` : ""}
+        </div>
       </div>`).join("") || `<p class="muted">Nenhum colaborador.</p>`;
     root.querySelectorAll("[data-id]").forEach((b) => b.onclick = async () => {
-      if (await confirmModal("Remover colaborador?")) {
+      const c = (store.data().colaboradores || []).find((x) => x.id === b.dataset.id);
+      const ok = await confirmSensitive({
+        title: "Acao sensivel",
+        message: "Desativar este colaborador? O historico sera preservado e o login sera bloqueado.",
+        details: c ? `Nome: ${c.nome}\nE-mail: ${c.email}` : "",
+        confirmLabel: "Desativar",
+      });
+      if (!ok) return;
+      try {
         await store.removeColaborador(b.dataset.id);
+        toast("Colaborador desativado");
         draw();
-      }
+      } catch (err) { toast(err.message, "err"); }
     });
+    root.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => openEdit(b.dataset.edit));
   }
-  root.querySelector("#form").onsubmit = async (e) => {
+  function openEdit(id) {
+    const c = (store.data().colaboradores || []).find((x) => x.id === id);
+    if (!c) return;
+    editing = c;
+    const form = root.querySelector("#formEdit");
+    form.nome.value = c.nome;
+    form.email.value = c.email;
+    form.senha.value = "";
+    form.perfil.value = c.perfil === "gerente" ? "gerente" : "atendente";
+    form.status.value = c.status || "ativo";
+    root.querySelector("#colabTitle").textContent = `Colaborador: ${c.nome}`;
+    root.querySelector("#permBox").innerHTML = permMatrixHtml(form.perfil.value, c.permissions || {});
+    if (!canPerms) {
+      root.querySelectorAll("#permBox input").forEach((i) => { i.disabled = true; });
+    }
+    modal.classList.add("show");
+  }
+  root.querySelector("#editPerfil").onchange = () => {
+    const perfil = root.querySelector("#editPerfil").value;
+    root.querySelector("#permBox").innerHTML = permMatrixHtml(perfil, {});
+    if (!canPerms) root.querySelectorAll("#permBox input").forEach((i) => { i.disabled = true; });
+  };
+  root.querySelector("#closeColab").onclick = () => modal.classList.remove("show");
+  modal.onclick = (e) => { if (e.target === modal) modal.classList.remove("show"); };
+  if (root.querySelector("#form")) {
+    root.querySelector("#form").onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await store.addColaborador({
+          nome: fd.get("nome"),
+          email: fd.get("email"),
+          senha: fd.get("senha"),
+          perfil: fd.get("perfil") || "atendente",
+        });
+        toast("Colaborador criado");
+        e.target.reset();
+        draw();
+      } catch (err) { toast(err.message, "err"); }
+    };
+  }
+  root.querySelector("#formEdit").onsubmit = async (e) => {
     e.preventDefault();
+    if (!editing) return;
     const fd = new FormData(e.target);
+    const perfil = fd.get("perfil") || "atendente";
+    const patch = {
+      nome: fd.get("nome"),
+      email: fd.get("email"),
+      perfil,
+      status: fd.get("status"),
+    };
+    if (fd.get("senha")) patch.senha = fd.get("senha");
+    if (canPerms) patch.permissions = collectPerms(root.querySelector("#permBox"), perfil);
+    const ok = await confirmSensitive({
+      title: "Acao sensivel",
+      message: "Confirmar alteracao de dados e permissoes deste colaborador?",
+      details: `Colaborador: ${editing.nome}\nPerfil: ${perfilLabel(perfil)}\nStatus: ${statusLabel(patch.status)}`,
+      confirmLabel: "Salvar",
+    });
+    if (!ok) return;
     try {
-      await store.addColaborador({ nome: fd.get("nome"), email: fd.get("email"), senha: fd.get("senha") });
-      toast("Colaborador criado");
-      e.target.reset();
+      await store.updateColaborador(editing.id, patch);
+      toast("Colaborador atualizado");
+      modal.classList.remove("show");
       draw();
     } catch (err) { toast(err.message, "err"); }
   };
@@ -880,7 +1093,7 @@ export function renderColaboradores(root) {
 }
 
 export function renderCartelas(root) {
-  if (!guard()) return;
+  if (!guard("cards.view")) return;
   let relatorioNome = "";
   root.innerHTML = pageShell("Cartelas antecipadas", "Controle o saldo de cartelas por cliente", `
     <div class="card" style="background:#fff8e8">
@@ -917,7 +1130,7 @@ export function renderCartelas(root) {
   function cartelas() { return store.data().cartelas || []; }
   function movsDe(nome) {
     return (store.data().cartelaMovs || [])
-      .filter((m) => m.cliente.toLowerCase() === nome.toLowerCase())
+      .filter((m) => m.cliente.toLowerCase() === nome.toLowerCase() && (!m.status || m.status === "ativo"))
       .sort((a, b) => b.ts - a.ts);
   }
   function saldoCls(n) {
@@ -980,14 +1193,20 @@ export function renderCartelas(root) {
             <td>${m.tipo === "compra" ? "Compra" : "Uso"}</td>
             <td>${m.tipo === "compra" ? "+" : "-"}${m.qtd}</td>
             <td><strong>${m.saldo}</strong></td>
-            <td><button type="button" class="btn-lixo" data-mov="${m.id}" aria-label="Excluir">${`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#9aa0a6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`}</button></td>
+            <td>${store.can("cards.cancel") ? `<button type="button" class="btn-lixo" data-mov="${m.id}" aria-label="Excluir">${`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#9aa0a6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`}</button>` : ""}</td>
           </tr>`).join("")}</tbody>
       </table></div>` : `<p class="muted" style="text-align:center">Nenhum movimento encontrado.</p>`}
     `;
     root.querySelectorAll("[data-mov]").forEach((b) => {
       b.onclick = async (e) => {
         e.stopPropagation();
-        if (await confirmModal("Tem certeza que deseja excluir este lancamento?")) {
+        if (!store.can("cards.cancel")) { toast("Operacao nao autorizada.", "err"); return; }
+        const ok = await confirmSensitive({
+          title: "Acao sensivel",
+          message: "Cancelar este lancamento de cartela?",
+          confirmLabel: "Cancelar lancamento",
+        });
+        if (ok) {
           store.removeCartelaMov(b.dataset.mov);
           toast("Lancamento excluido");
           abrirRelatorio(relatorioNome);
@@ -1017,7 +1236,9 @@ export function renderCartelas(root) {
       listaSug.style.display = "none";
     }
   });
+  if (!store.can("cards.create")) root.querySelector("#btnCompra").disabled = true;
   root.querySelector("#btnCompra").onclick = () => {
+    if (!store.can("cards.create")) { toast("Operacao nao autorizada.", "err"); return; }
     const nome = nomeInput.value.trim();
     const qtd = Number(root.querySelector("#qtdCompra").value);
     const msg = root.querySelector("#msgCompra");
@@ -1045,7 +1266,7 @@ export function renderCartelas(root) {
 }
 
 export function renderPlano(root) {
-  if (!guard()) return;
+  if (!guard("plan.view")) return;
   const user = store.currentUser();
   const p = store.data().perfil;
   const dias = Math.max(0, Math.ceil((p.validoAte - Date.now()) / 86400000));
@@ -1111,7 +1332,7 @@ export function renderPlano(root) {
 }
 
 export function renderIndicar(root) {
-  if (!guard()) return;
+  if (!guard("plan.view")) return;
   root.innerHTML = pageShell("Programa de Indicacoes", "Ganhe +30 dias gratis", `
     <div class="card">
       <p>Indique um amigo. Quando ele criar a conta e ativar o acesso, voce ganha 30 dias extras.</p>
@@ -1155,7 +1376,7 @@ export function renderSuporte(root) {
 }
 
 export function renderProspectos(root) {
-  if (!guard()) return;
+  if (!guard("customers.view")) return;
   const list = store.data().pesquisas || [];
   root.innerHTML = pageShell("Prospectos", "Contatos da pesquisa EVS", `
     <div class="card">
@@ -1165,4 +1386,114 @@ export function renderProspectos(root) {
       <a class="link-pill" href="#/pesquisa">Nova pesquisa</a>
     </div>
   `);
+}
+
+function auditActionLabel(action) {
+  const map = {
+    LOGIN: "Login",
+    LOGOUT: "Logout",
+    CREATE_SALE: "Registrou venda",
+    EDIT_SALE: "Editou venda",
+    CANCEL_SALE: "Cancelou venda",
+    REFUND_SALE: "Estornou venda",
+    CREATE_ACCESS: "Registrou acesso",
+    EDIT_ACCESS: "Editou acesso",
+    CANCEL_ACCESS: "Cancelou acesso",
+    CREATE_CUSTOMER: "Cadastrou contato",
+    EDIT_CUSTOMER: "Editou contato",
+    STOCK_ADJUSTMENT: "Ajustou estoque",
+    STOCK_PURCHASE: "Registrou inventario",
+    STOCK_LOSS: "Registrou perda",
+    CASH_CLOSE: "Fechou caixa",
+    CASH_REOPEN: "Reabriu caixa",
+    CASH_EXPENSE: "Lancou envio/despesa",
+    CREATE_CARD: "Registrou cartela",
+    USE_CARD: "Usou cartela",
+    CANCEL_CARD: "Cancelou cartela",
+    CREATE_COLLABORATOR: "Criou colaborador",
+    EDIT_COLLABORATOR: "Editou colaborador",
+    DELETE_COLLABORATOR: "Desativou colaborador",
+    PERMISSION_CHANGED: "Alterou permissao",
+    EDIT_PRICE: "Alterou preco",
+    EDIT_FINANCE: "Alterou financeiro",
+    EDIT_SETTINGS: "Alterou configuracao",
+  };
+  return map[action] || action;
+}
+function moneyish(v) {
+  if (typeof v === "number") return formatMoney(v);
+  return String(v ?? "");
+}
+function auditDiff(before, after) {
+  if (!before && after) return "Registro criado";
+  if (before && !after) return "Registro removido";
+  if (!before || !after) return "";
+  const keys = ["valor", "status", "saldo", "estoque", "cliente", "nome", "perfil", "permissions"];
+  const parts = [];
+  keys.forEach((k) => {
+    if (before[k] === undefined && after[k] === undefined) return;
+    if (JSON.stringify(before[k]) === JSON.stringify(after[k])) return;
+    if (k === "permissions") {
+      const bk = before.permissions || {};
+      const ak = after.permissions || {};
+      const all = new Set([...Object.keys(bk), ...Object.keys(ak)]);
+      all.forEach((p) => {
+        if (!!bk[p] !== !!ak[p]) parts.push(`${p}: ${bk[p] ? "SIM" : "NAO"} → ${ak[p] ? "SIM" : "NAO"}`);
+      });
+      return;
+    }
+    parts.push(`${k}: ${moneyish(before[k])} → ${moneyish(after[k])}`);
+  });
+  if (after.motivo) parts.push(`Motivo: ${after.motivo}`);
+  return parts.join("\n");
+}
+
+export function renderAuditoria(root) {
+  if (!guard("audit.view")) return;
+  root.innerHTML = pageShell("Auditoria", "Historico de acoes da equipe", `
+    <div class="card">
+      <input id="qAudit" placeholder="Buscar usuario, acao ou registro" />
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <select id="modAudit">
+          <option value="">Todos os modulos</option>
+          <option>Auth</option>
+          <option>Acessos</option>
+          <option>Vendas</option>
+          <option>Estoque</option>
+          <option>Caixa</option>
+          <option>Cartelas</option>
+          <option>Equipe</option>
+          <option>Clientes</option>
+          <option>Financeiro</option>
+        </select>
+        <input id="actorAudit" placeholder="Filtrar usuario" />
+      </div>
+      <button type="button" id="btnFiltrar" class="btn-ghost">Filtrar</button>
+      <div id="listaAudit"></div>
+    </div>
+  `);
+  async function draw() {
+    try {
+      const logs = await store.loadAudit({
+        q: root.querySelector("#qAudit").value.trim(),
+        module: root.querySelector("#modAudit").value,
+        actor: root.querySelector("#actorAudit").value.trim(),
+      });
+      root.querySelector("#listaAudit").innerHTML = logs.length
+        ? logs.map((l) => {
+          const diff = auditDiff(l.before, l.after);
+          return `<div class="audit-item">
+            <div class="muted">${new Date(l.createdAt).toLocaleString("pt-BR")}</div>
+            <div><strong>${escapeHtml(l.actorName || "Sistema")}</strong> · ${escapeHtml(l.module || "")}</div>
+            <div>${escapeHtml(auditActionLabel(l.action))}${l.recordLabel ? ` · ${escapeHtml(l.recordLabel)}` : ""}</div>
+            ${diff ? `<pre class="audit-diff">${escapeHtml(diff)}</pre>` : ""}
+          </div>`;
+        }).join("")
+        : `<p class="muted">Nenhum registro de auditoria.</p>`;
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  }
+  root.querySelector("#btnFiltrar").onclick = draw;
+  draw();
 }

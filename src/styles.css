@@ -998,3 +998,37 @@ label.field { display: block; text-align: left; font-size: 13px; font-weight: 70
 }
 .mov-compra td { background: #f3fff6; }
 .mov-uso td { background: #fff7f7; }
+
+.perm-box { margin: 10px 0 14px; }
+.perm-group {
+  background: #f7f8fb;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+.perm-mod { font-weight: 800; color: #2B4ECC; margin-bottom: 6px; }
+.perm-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  margin: 4px 0;
+}
+.perm-item input { width: auto; margin: 0; }
+.audit-item {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+.audit-diff {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: #444;
+  background: #f6f7fb;
+  padding: 8px;
+  border-radius: 8px;
+}
+.badge-gray { background: #eceff1; color: #546e7a; }

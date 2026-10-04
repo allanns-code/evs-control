@@ -61,9 +61,41 @@ db.exec(`
     value TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    actor_id TEXT,
+    actor_name TEXT,
+    actor_type TEXT,
+    action TEXT NOT NULL,
+    module TEXT,
+    record_id TEXT,
+    record_label TEXT,
+    before_json TEXT,
+    after_json TEXT,
+    extra TEXT,
+    created_at INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_colab_email ON colaboradores(email);
   CREATE INDEX IF NOT EXISTS idx_lic_status ON licenses(status);
+  CREATE INDEX IF NOT EXISTS idx_audit_owner ON audit_logs(owner_id, created_at);
 `);
+
+function columnExists(table, column) {
+  return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+}
+
+function addColumn(table, column, ddl) {
+  if (!columnExists(table, column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+}
+
+addColumn("colaboradores", "perfil", "TEXT NOT NULL DEFAULT 'atendente'");
+addColumn("colaboradores", "status", "TEXT NOT NULL DEFAULT 'ativo'");
+addColumn("colaboradores", "permissions", "TEXT NOT NULL DEFAULT '{}'");
+addColumn("colaboradores", "last_login", "INTEGER");
 
 export function hashPassword(pw) {
   const salt = randomBytes(16).toString("hex");
@@ -198,9 +230,81 @@ export function setUserData(id, data) {
   ).run(id, JSON.stringify(data), Date.now());
 }
 
-export function publicUser(u) {
+export function publicUser(u, extra = {}) {
   if (!u) return null;
-  return { id: u.id, nome: u.nome, email: u.email, role: u.role };
+  return { id: u.id, nome: u.nome, email: u.email, role: u.role, ...extra };
+}
+
+export function parsePermissions(raw) {
+  if (!raw) return {};
+  if (typeof raw === "object") return raw;
+  try { return JSON.parse(raw) || {}; } catch { return {}; }
+}
+
+export function publicColaborador(c) {
+  if (!c) return null;
+  return {
+    id: c.id,
+    nome: c.nome,
+    email: c.email,
+    perfil: c.perfil || "atendente",
+    status: c.status || "ativo",
+    permissions: parsePermissions(c.permissions),
+    createdAt: c.created_at,
+    lastLogin: c.last_login || null,
+  };
+}
+
+export function writeAudit({ ownerId, actor, action, module, recordId, recordLabel, before, after, extra }) {
+  db.prepare(
+    `INSERT INTO audit_logs (id, owner_id, actor_id, actor_name, actor_type, action, module, record_id, record_label, before_json, after_json, extra, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).run(
+    uid("a_"),
+    ownerId,
+    actor?.id || null,
+    actor?.nome || null,
+    actor?.type || "owner",
+    action,
+    module || null,
+    recordId != null ? String(recordId) : null,
+    recordLabel || null,
+    before != null ? JSON.stringify(before) : null,
+    after != null ? JSON.stringify(after) : null,
+    extra != null ? JSON.stringify(extra) : null,
+    Date.now()
+  );
+}
+
+export function listAudit(ownerId, { q = "", module = "", actor = "", from = 0, to = 0, limit = 200 } = {}) {
+  const rows = db.prepare(
+    "SELECT * FROM audit_logs WHERE owner_id = ? ORDER BY created_at DESC LIMIT ?"
+  ).all(ownerId, Math.min(Number(limit) || 200, 500));
+  const term = String(q || "").toLowerCase();
+  const mod = String(module || "").toLowerCase();
+  const act = String(actor || "").toLowerCase();
+  return rows.filter((r) => {
+    if (from && r.created_at < Number(from)) return false;
+    if (to && r.created_at > Number(to)) return false;
+    if (mod && String(r.module || "").toLowerCase() !== mod) return false;
+    if (act && !String(r.actor_name || "").toLowerCase().includes(act)) return false;
+    if (!term) return true;
+    const blob = [r.action, r.module, r.record_label, r.actor_name, r.record_id].join(" ").toLowerCase();
+    return blob.includes(term);
+  }).map((r) => ({
+    id: r.id,
+    actorId: r.actor_id,
+    actorName: r.actor_name,
+    actorType: r.actor_type,
+    action: r.action,
+    module: r.module,
+    recordId: r.record_id,
+    recordLabel: r.record_label,
+    before: r.before_json ? JSON.parse(r.before_json) : null,
+    after: r.after_json ? JSON.parse(r.after_json) : null,
+    extra: r.extra ? JSON.parse(r.extra) : null,
+    createdAt: r.created_at,
+  }));
 }
 
 export function seed() {
