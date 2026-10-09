@@ -43,6 +43,7 @@ function normalizeUserData(d) {
 async function loadUserData() {
   const r = await api.get("/data");
   state.data = normalizeUserData(r.data);
+  applyActor(r);
   return state.data;
 }
 
@@ -137,7 +138,8 @@ export const store = {
     return state.session?.role === "admin" && state.actor?.type !== "colaborador";
   },
   isOwner() {
-    return state.actor?.type === "owner" || state.actor?.type === "admin";
+    if (state.actor?.type === "colaborador") return false;
+    return state.actor?.type === "owner" || state.actor?.type === "admin" || state.session?.role === "admin";
   },
   isColaborador() {
     return state.actor?.type === "colaborador";
@@ -256,6 +258,7 @@ export const store = {
     setAdminToken(null);
     const me = await api.get("/me");
     state.session = me.user;
+    applyActor(me);
     await Promise.all([loadPlanos(), loadUserData()]);
   },
 

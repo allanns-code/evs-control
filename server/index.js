@@ -278,8 +278,18 @@ app.post("/api/me/password", authRequired, wrap((req, res) => {
 }));
 
 app.get("/api/data", authRequired, wrap((req, res) => {
-  const data = getUserData(req.auth.id);
-  if (!data) throw new Error("Dados nao encontrados.");
+  let data = getUserData(req.auth.id);
+  if (!data) {
+    const user = getUserById(req.auth.id);
+    data = {
+      perfil: { nome: user?.nome, email: user?.email, estado: "SP", desconto: 42, planoKey: "trial", plano: "Trial 21 dias", status: "ativo", validoAte: Date.now() + 21 * 86400000, indicacoes: 0 },
+      acessos: [], vendas: [], recrutamento: [], metas: {}, ganhosManuais: {}, custos: [], enviosCusto: [],
+      pesquisas: [], inventario: [], historicoInventario: [], cartelas: [], colaboradores: [],
+      contas: [], entradasGestao: { vendas: 0, royalties: 0, bonus: 0, outros: 0 }, precificador: [],
+      lastAcesso: null, lastVenda: null, cartelaMovs: [], fechamentoFlags: {}, createdAt: Date.now(),
+    };
+    setUserData(req.auth.id, data);
+  }
   const cols = db.prepare("SELECT id, nome, email, perfil, status, permissions, created_at, last_login FROM colaboradores WHERE owner_id = ?").all(req.auth.id);
   data.colaboradores = cols.map(publicColaborador);
   res.json({ ok: true, data: redactData(data, req.actor), actor: actorPayload(req) });

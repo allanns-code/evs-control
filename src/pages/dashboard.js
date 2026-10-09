@@ -25,7 +25,7 @@ export function renderDashboard(root) {
   const data = store.data();
   if (!data) { navigate("/login"); return; }
   const t = todayParts();
-  const perfil = data.perfil;
+  const perfil = data.perfil || {};
   const anos = [];
   for (let a = t.ano - 3; a <= t.ano + 1; a++) anos.push(a);
 
@@ -225,6 +225,7 @@ export function renderDashboard(root) {
   const diaSelect = $("#diaSelecionado");
 
   function fillDays() {
+    if (!diaSelect) return;
     const n = new Date(ano, mes + 1, 0).getDate();
     diaSelect.innerHTML = Array.from({ length: n }, (_, i) => {
       const d = i + 1;
@@ -234,18 +235,28 @@ export function renderDashboard(root) {
   fillDays();
 
   function refreshLast() {
+    const lastAcc = $("#ultimoAcesso");
+    const lastVen = $("#ultimaVenda");
     const la = data.lastAcesso;
-    if (la && !hideLast) {
-      $("#ultimoAcesso").style.display = "flex";
-      $("#ultimoNome").textContent = la.nome;
-      $("#ultimoValor").textContent = formatMoney(la.valor);
-    } else $("#ultimoAcesso").style.display = "none";
+    if (lastAcc) {
+      if (la && !hideLast) {
+        lastAcc.style.display = "flex";
+        const nome = $("#ultimoNome");
+        const valor = $("#ultimoValor");
+        if (nome) nome.textContent = la.nome;
+        if (valor) valor.textContent = formatMoney(la.valor);
+      } else lastAcc.style.display = "none";
+    }
     const lv = data.lastVenda;
-    if (lv && !hideLast) {
-      $("#ultimaVenda").style.display = "flex";
-      $("#ultimaVendaNome").textContent = lv.nome;
-      $("#ultimaVendaValor").textContent = formatMoney(lv.valor);
-    } else $("#ultimaVenda").style.display = "none";
+    if (lastVen) {
+      if (lv && !hideLast) {
+        lastVen.style.display = "flex";
+        const nome = $("#ultimaVendaNome");
+        const valor = $("#ultimaVendaValor");
+        if (nome) nome.textContent = lv.nome;
+        if (valor) valor.textContent = formatMoney(lv.valor);
+      } else lastVen.style.display = "none";
+    }
   }
 
   function setText(id, value) {
@@ -290,16 +301,16 @@ export function renderDashboard(root) {
     refreshLast();
   }
 
-  $("#anoSelecionado").onchange = (e) => { ano = Number(e.target.value); hideLast = true; fillDays(); refresh(); };
-  $("#mesSelecionado").onchange = (e) => { mes = Number(e.target.value); if (dia > new Date(ano, mes + 1, 0).getDate()) dia = 1; hideLast = true; fillDays(); refresh(); };
-  $("#diaSelecionado").onchange = (e) => {
+  if ($("#anoSelecionado")) $("#anoSelecionado").onchange = (e) => { ano = Number(e.target.value); hideLast = true; fillDays(); refresh(); };
+  if ($("#mesSelecionado")) $("#mesSelecionado").onchange = (e) => { mes = Number(e.target.value); if (dia > new Date(ano, mes + 1, 0).getDate()) dia = 1; hideLast = true; fillDays(); refresh(); };
+  if ($("#diaSelecionado")) $("#diaSelecionado").onchange = (e) => {
     dia = Number(e.target.value);
     hideLast = true;
     refresh();
   };
   function recustearItens() {
-    const desc = Number($("#descontoCliente").value) || 0;
-    const estado = $("#estadoCliente").value;
+    const desc = Number($("#descontoCliente")?.value) || 0;
+    const estado = $("#estadoCliente")?.value || "SP";
     itensVenda.forEach((it) => {
       const p = produtoPorNome(it.produto);
       if (p) it.custo = custoComDesconto(p.preco, desc, p, estado);
@@ -312,7 +323,7 @@ export function renderDashboard(root) {
   if ($("#descontoCliente") && $("#descontoCliente").tagName === "SELECT") {
     $("#descontoCliente").onchange = (e) => { store.setPerfil({ desconto: Number(e.target.value) }); recustearItens(); };
   }
-  $("#btnSair").onclick = () => { store.logout(); navigate("/login"); };
+  if ($("#btnSair")) $("#btnSair").onclick = () => { store.logout(); navigate("/login"); };
   if ($("#btnAdmin")) $("#btnAdmin").onclick = () => navigate("/admin");
   if ($("#voltarAdmin")) $("#voltarAdmin").onclick = async () => { await store.stopImpersonate(); navigate("/admin"); };
   if ($("#btnResumo")) $("#btnResumo").onclick = () => navigate("/resumo");
@@ -328,6 +339,7 @@ export function renderDashboard(root) {
 
   $("#acessoNome")?.addEventListener("input", () => {
     const box = $("#sugestoesClientes");
+    if (!box) return;
     const t = $("#acessoNome").value.trim().toLowerCase();
     if (!t) { box.style.display = "none"; return; }
     const found = (data.cartelas || []).filter((c) => c.cliente.toLowerCase().includes(t)).slice(0, 5);
@@ -470,8 +482,8 @@ export function renderDashboard(root) {
   };
 
   const modal = $("#modal");
-  $("#closeModal").onclick = () => modal.classList.remove("show");
-  modal.onclick = (e) => { if (e.target === modal) modal.classList.remove("show"); };
+  if ($("#closeModal")) $("#closeModal").onclick = () => modal?.classList.remove("show");
+  if (modal) modal.onclick = (e) => { if (e.target === modal) modal.classList.remove("show"); };
 
   function openModal(html) {
     $("#relatorio").innerHTML = html;

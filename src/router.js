@@ -19,7 +19,12 @@ export function render() {
   const path = currentPath();
   const fn = routes[path] || routes["/404"] || routes["/"];
   app.innerHTML = "";
-  fn(app);
+  try {
+    fn(app);
+  } catch (err) {
+    console.error(err);
+    app.innerHTML = `<div class="auth-wrap"><div class="auth-card"><h2>Falha ao abrir a tela</h2><p class="muted">${String(err.message || err)}</p><a href="#/">Voltar ao painel</a></div></div>`;
+  }
   window.scrollTo(0, 0);
 }
 
